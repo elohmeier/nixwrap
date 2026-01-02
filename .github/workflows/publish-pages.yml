@@ -28,7 +28,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          pip install build httpx
+          pip install build
 
       - name: Install nixwrap-core
         run: |

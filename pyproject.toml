@@ -9,9 +9,7 @@ description = "Shared build backend for nixwrap packages"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-dependencies = [
-    "httpx>=0.27",
-]
+dependencies = []  # Zero external dependencies - uses stdlib only
 
 [project.optional-dependencies]
 dev = [
