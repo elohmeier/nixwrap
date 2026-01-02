@@ -129,26 +129,45 @@ def generate_pep503_index(packages_dir: Path, index_dir: Path) -> None:
 
     # Group packages by normalized name
     packages: dict[str, list[Path]] = {}
-    for sdist in packages_dir.glob("*.tar.gz"):
+
+    # Process sdists (name-version.tar.gz)
+    for pkg_file in packages_dir.glob("*.tar.gz"):
         # Extract package name from filename (name-version.tar.gz)
-        name = sdist.name.rsplit("-", 1)[0]  # Remove version
+        name = pkg_file.name.rsplit("-", 1)[0]  # Remove version
         normalized = normalize_name(name)
         if normalized not in packages:
             packages[normalized] = []
-        packages[normalized].append(sdist)
+        packages[normalized].append(pkg_file)
+
+    # Process wheels (name-version-python-abi-platform.whl)
+    for pkg_file in packages_dir.glob("*.whl"):
+        # Wheel filename: {distribution}-{version}(-{build tag})?-{python}-{abi}-{platform}.whl
+        # Extract name by taking everything before the version pattern
+        parts = pkg_file.name.split("-")
+        # Find where version starts (first part that looks like a version number)
+        name_parts = []
+        for i, part in enumerate(parts):
+            if part[0].isdigit():
+                break
+            name_parts.append(part)
+        name = "_".join(name_parts)  # Wheel names use underscores
+        normalized = normalize_name(name)
+        if normalized not in packages:
+            packages[normalized] = []
+        packages[normalized].append(pkg_file)
 
     # Generate per-project index pages
-    for name, sdists in packages.items():
+    for name, pkg_files in packages.items():
         project_dir = index_dir / name
         project_dir.mkdir(parents=True, exist_ok=True)
 
         links = []
-        for sdist in sorted(sdists):
+        for pkg_file in sorted(pkg_files):
             # Calculate SHA256 hash for PEP 503 compliance
-            sha256 = hashlib.sha256(sdist.read_bytes()).hexdigest()
+            sha256 = hashlib.sha256(pkg_file.read_bytes()).hexdigest()
             # Relative path from <project>/ to packages/
-            rel_path = f"../packages/{sdist.name}"
-            links.append(f'<a href="{rel_path}#sha256={sha256}">{sdist.name}</a>')
+            rel_path = f"../packages/{pkg_file.name}"
+            links.append(f'<a href="{rel_path}#sha256={sha256}">{pkg_file.name}</a>')
 
         html = f"""<!DOCTYPE html>
 <html>

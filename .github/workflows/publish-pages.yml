@@ -28,13 +28,17 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          pip install build
+          pip install build httpx
 
       - name: Install nixwrap-core
         run: |
           pip install -e .
 
-      - name: Build sdists and generate index
+      - name: Build nixwrap-core wheel
+        run: |
+          python -m build --wheel --outdir gh-pages/packages/
+
+      - name: Build tool sdists and generate index
         run: |
           python tools/build_index.py --manifests tools/manifests --out gh-pages
 
