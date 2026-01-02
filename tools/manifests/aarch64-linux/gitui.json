@@ -1,0 +1,42 @@
+{
+  "name": "gitui",
+  "version": "0.27.0",
+  "dist": "gitui",
+  "command": "gitui",
+  "description": "Nix package: gitui",
+  "store_path": "/nix/store/kpvn35sjjczr5aisx2cw29wc0310438g-gitui-0.27.0",
+  "bin_relpath": "bin/gitui",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:064x0155429nahv72vznn9y2xl6masf1zdismzfmnb1ngpn3zn2g",
+  "ld_linux": "lib/ld-linux-aarch64.so.1",
+  "closure": [
+    {
+      "store_path": "/nix/store/89n0gcl1yjp37ycca45rn50h7lms5p6f-glibc-2.40-66",
+      "nar_hash": "sha256:03m7bhyc3zg2axr9ha80zmbfgrp88z9ckmzfpidlwgfwvvhxya4m"
+    },
+    {
+      "store_path": "/nix/store/nj50gkyx813dxvfmsg1q8m330hmf3h86-openssl-3.6.0",
+      "nar_hash": "sha256:1ywi63v0zl02jx4xmx1j5a2ab7gyg3g39p66yy5p5ys6si3clrr8"
+    },
+    {
+      "store_path": "/nix/store/qipd93x9gjyiygqk673rd2ssnf8y7jj0-gcc-14.3.0-lib",
+      "nar_hash": "sha256:1zzkcxdd96ms2bffb0wfvwbxrap7nwns0r7kpy7rcki590idnbyj"
+    },
+    {
+      "store_path": "/nix/store/7yd21750d8mfw2ycsp2fiifa4l4wsscp-xgcc-14.3.0-libgcc",
+      "nar_hash": "sha256:08gdnwlldww3x2b8g7ikz81kl4zbvhy2z5qn7ynxjf78yn7bm59b"
+    },
+    {
+      "store_path": "/nix/store/fdy9f9amsb4c7qgvq5ifsk923p8sd3w5-libidn2-2.3.8",
+      "nar_hash": "sha256:044sklbv1f359czwsqic477rs29sxfl2dw2xn40cj4zgjpm6fz8r"
+    },
+    {
+      "store_path": "/nix/store/l8wljp091lkvnvx6xfnvfpgr6j568idc-gcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1raqda6g225jiaipd5jdmzqlkwxqc5fq8j6p36pji9na48ivcsiq"
+    },
+    {
+      "store_path": "/nix/store/qmgi5gdgg4vf1lhshlwsr3i5hpsk8w4a-libunistring-1.4.1",
+      "nar_hash": "sha256:103qakcybjdfxrzxigq63w781lw0bh7z7b7a9im8vlpmas6mns8k"
+    }
+  ]
+}

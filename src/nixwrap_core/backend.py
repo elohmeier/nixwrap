@@ -384,12 +384,47 @@ def _normalize_dist_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _get_nix_system() -> str:
+    """Get the Nix system identifier for the current platform."""
+    machine = platform.machine().lower()
+    system = platform.system().lower()
+
+    if system == "linux":
+        if machine == "x86_64":
+            return "x86_64-linux"
+        elif machine == "aarch64":
+            return "aarch64-linux"
+    elif system == "darwin":
+        if machine == "arm64":
+            return "aarch64-darwin"
+        else:
+            return "x86_64-darwin"
+
+    return f"{machine}-{system}"
+
+
 def _read_manifest(source_dir: Path) -> dict[str, Any]:
-    """Read the nixwrap manifest from source directory."""
+    """Read the nixwrap manifest for the current platform from source directory."""
+    nix_system = _get_nix_system()
+
+    # Try architecture-specific manifest first
+    arch_manifest_path = source_dir / f"nixwrap_manifest_{nix_system}.json"
+    if arch_manifest_path.exists():
+        return json.loads(arch_manifest_path.read_text())
+
+    # Fall back to legacy single manifest (for backwards compatibility)
     manifest_path = source_dir / "nixwrap_manifest.json"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-    return json.loads(manifest_path.read_text())
+    if manifest_path.exists():
+        return json.loads(manifest_path.read_text())
+
+    # List available manifests for helpful error message
+    available = list(source_dir.glob("nixwrap_manifest*.json"))
+    if available:
+        archs = [p.stem.replace("nixwrap_manifest_", "") for p in available]
+        raise FileNotFoundError(
+            f"No manifest for {nix_system}. Available: {', '.join(archs)}"
+        )
+    raise FileNotFoundError(f"No manifest found in {source_dir}")
 
 
 def _get_module_name(manifest: dict[str, Any]) -> str:
@@ -434,7 +469,8 @@ def build_wheel(
     bin_relpath = manifest["bin_relpath"]
     cache_url = manifest.get("cache_url", "https://cache.nixos.org")
     nar_hash = manifest.get("nar_hash")
-    ld_linux = manifest.get("ld_linux", "lib/ld-linux-x86-64.so.2")
+    ld_linux_relpath = manifest.get("ld_linux", "lib/ld-linux-x86-64.so.2")
+    ld_linux_name = Path(ld_linux_relpath).name  # e.g., "ld-linux-x86-64.so.2"
     closure = manifest.get("closure", [])
 
     module_name = _get_module_name(manifest)
@@ -465,13 +501,13 @@ def build_wheel(
         ld_linux_path = None
         for item in nix_store.iterdir():
             if "glibc" in item.name:
-                candidate = item / ld_linux
+                candidate = item / ld_linux_relpath
                 if candidate.exists():
                     ld_linux_path = candidate
                     break
 
         if not ld_linux_path:
-            raise FileNotFoundError(f"ld-linux not found at {ld_linux}")
+            raise FileNotFoundError(f"ld-linux not found at {ld_linux_relpath}")
 
         # Build the wheel
         wheel_name = f"{normalized_name}-{version}-py3-none-{platform_tag}.whl"
@@ -521,7 +557,7 @@ def main() -> None:
     lib_dir = pkg_dir / "lib"
     bin_dir = pkg_dir / "bin"
 
-    ld_linux = lib_dir / "ld-linux-x86-64.so.2"
+    ld_linux = lib_dir / "{ld_linux_name}"
     binary = bin_dir / "{command}"
 
     if not ld_linux.exists():
@@ -560,13 +596,13 @@ if __name__ == "__main__":
             whl.writestr(info, binary_path.read_bytes())
 
             # Write ld-linux
-            ld_arc_path = f"{module_name}/lib/ld-linux-x86-64.so.2"
+            ld_arc_path = f"{module_name}/lib/{ld_linux_name}"
             info = zipfile.ZipInfo(ld_arc_path)
             info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
             whl.writestr(info, ld_linux_path.read_bytes())
 
             # Collect all .so files from lib/ directories (only real files)
-            seen_libs = {"ld-linux-x86-64.so.2"}  # Already added above
+            seen_libs = {ld_linux_name}  # Already added above
             for store_item in nix_store.iterdir():
                 lib_dir = store_item / "lib"
                 if not lib_dir.exists():

@@ -37,7 +37,7 @@ TOOLS = [
     ("hexyl", "hexyl", "hexyl", None),
     ("hyperfine", "hyperfine", "hyperfine", None),
     ("tokei", "tokei", "tokei", None),
-    ("du-dust", "dust", "dust", None),
+    ("dust", "dust", "dust", None),  # nixpkgs attr is "dust" not "du-dust"
     ("duf", "duf", "duf", None),
     ("procs", "procs", "procs", None),
     ("bottom", "btm", "bottom", None),
@@ -253,6 +253,13 @@ def generate_manifest(
     # Use bin_path override if provided, otherwise default to bin/<command>
     bin_relpath = bin_path if bin_path else f"bin/{command}"
 
+    # Set ld_linux based on system architecture
+    system = pkg_info.get("system", "x86_64-linux")
+    if "aarch64" in system:
+        ld_linux = "lib/ld-linux-aarch64.so.1"
+    else:
+        ld_linux = "lib/ld-linux-x86-64.so.2"
+
     manifest = {
         "name": attr,
         "version": version,
@@ -263,7 +270,7 @@ def generate_manifest(
         "bin_relpath": bin_relpath,
         "cache_url": NIX_CACHE_URL,
         "nar_hash": nar_hash,
-        "ld_linux": "lib/ld-linux-x86-64.so.2",  # TODO: per-arch
+        "ld_linux": ld_linux,
         "closure": closure,
     }
 

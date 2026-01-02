@@ -1,0 +1,54 @@
+{
+  "name": "entr",
+  "version": "5.7",
+  "dist": "entr",
+  "command": "entr",
+  "description": "Nix package: entr",
+  "store_path": "/nix/store/5yc9gysgx7w4qivzhafh6qjy102lsvwz-entr-5.7",
+  "bin_relpath": "bin/entr",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:1k59agf2c8p18p00xkb2l1lkkw5bifa7yj17r1z84w1n8r6ihrrl",
+  "ld_linux": "lib/ld-linux-aarch64.so.1",
+  "closure": [
+    {
+      "store_path": "/nix/store/89n0gcl1yjp37ycca45rn50h7lms5p6f-glibc-2.40-66",
+      "nar_hash": "sha256:03m7bhyc3zg2axr9ha80zmbfgrp88z9ckmzfpidlwgfwvvhxya4m"
+    },
+    {
+      "store_path": "/nix/store/d9jxdwalyr5qzmyz9m5avmzn7w40h7iy-coreutils-9.8",
+      "nar_hash": "sha256:1jvp86rqyf32p4f7hgmwh435qy80difvxbxdab3axiryr2rla2mh"
+    },
+    {
+      "store_path": "/nix/store/7yd21750d8mfw2ycsp2fiifa4l4wsscp-xgcc-14.3.0-libgcc",
+      "nar_hash": "sha256:08gdnwlldww3x2b8g7ikz81kl4zbvhy2z5qn7ynxjf78yn7bm59b"
+    },
+    {
+      "store_path": "/nix/store/fdy9f9amsb4c7qgvq5ifsk923p8sd3w5-libidn2-2.3.8",
+      "nar_hash": "sha256:044sklbv1f359czwsqic477rs29sxfl2dw2xn40cj4zgjpm6fz8r"
+    },
+    {
+      "store_path": "/nix/store/arz2cp9k9j2fijmiyl8hija93l8q05q2-gmp-with-cxx-6.3.0",
+      "nar_hash": "sha256:01lmmvspf9y55b7lw8rfjdkdpxqpmvpfrn0y3s291w78vdazbs9g"
+    },
+    {
+      "store_path": "/nix/store/paqyjmi444ka6lgfsxq6420mwk75xvgs-acl-2.3.2",
+      "nar_hash": "sha256:0vria9wp1sb453y5ssknpd93pxchahs1bdvqyrbsk6y5qsxv1ph1"
+    },
+    {
+      "store_path": "/nix/store/wf99r0im07qhkvnl1gv5243qx0xf01pd-attr-2.5.2",
+      "nar_hash": "sha256:1vc5lkj17xp246c34avplprl50bldsb3m32rshl6zbi413n4gxgp"
+    },
+    {
+      "store_path": "/nix/store/qmgi5gdgg4vf1lhshlwsr3i5hpsk8w4a-libunistring-1.4.1",
+      "nar_hash": "sha256:103qakcybjdfxrzxigq63w781lw0bh7z7b7a9im8vlpmas6mns8k"
+    },
+    {
+      "store_path": "/nix/store/qipd93x9gjyiygqk673rd2ssnf8y7jj0-gcc-14.3.0-lib",
+      "nar_hash": "sha256:1zzkcxdd96ms2bffb0wfvwbxrap7nwns0r7kpy7rcki590idnbyj"
+    },
+    {
+      "store_path": "/nix/store/l8wljp091lkvnvx6xfnvfpgr6j568idc-gcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1raqda6g225jiaipd5jdmzqlkwxqc5fq8j6p36pji9na48ivcsiq"
+    }
+  ]
+}

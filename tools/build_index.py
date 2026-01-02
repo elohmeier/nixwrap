@@ -33,8 +33,15 @@ def normalize_module_name(name: str) -> str:
     return re.sub(r"[-_.]+", "_", name).lower()
 
 
-def generate_wrapper_project(manifest: dict[str, Any], output_dir: Path) -> None:
-    """Generate a minimal wrapper project for building an sdist."""
+def generate_wrapper_project(manifests: dict[str, dict[str, Any]], output_dir: Path) -> None:
+    """Generate a minimal wrapper project for building an sdist.
+
+    Args:
+        manifests: Dict of {arch: manifest} where arch is like "x86_64-linux"
+        output_dir: Directory to write the project to
+    """
+    # Use any manifest for common fields
+    manifest = next(iter(manifests.values()))
     dist_name = manifest["dist"]
     version = manifest["version"]
     command = manifest["command"]
@@ -46,9 +53,10 @@ def generate_wrapper_project(manifest: dict[str, Any], output_dir: Path) -> None
     src_dir = output_dir / "src" / module_name
     src_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write nixwrap_manifest.json
-    manifest_path = output_dir / "nixwrap_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    # Write architecture-specific manifests
+    for arch, arch_manifest in manifests.items():
+        manifest_path = output_dir / f"nixwrap_manifest_{arch}.json"
+        manifest_path.write_text(json.dumps(arch_manifest, indent=2))
 
     # Write pyproject.toml
     pyproject = f'''[build-system]
@@ -222,44 +230,71 @@ def main() -> int:
         print(f"Error: Manifests directory not found: {manifests_dir}", file=sys.stderr)
         return 1
 
-    # Find all manifest files
+    # Find all manifest files and group by (dist, version, arch)
     manifest_files = list(manifests_dir.glob("*.json"))
+    manifest_files.extend(manifests_dir.glob("*/*.json"))  # Include arch subdirs
     if not manifest_files:
         print(f"Warning: No manifest files found in {manifests_dir}", file=sys.stderr)
         return 0
 
-    print(f"Found {len(manifest_files)} manifest(s)")
+    # Group manifests by (dist, version) -> {arch: manifest_file}
+    manifest_groups: dict[tuple[str, str], dict[str, Path]] = {}
+    for mf in manifest_files:
+        try:
+            m = json.loads(mf.read_text())
+            key = (m["dist"], m["version"])
+            # Determine architecture from parent directory name
+            arch = mf.parent.name if mf.parent.name in ("x86_64-linux", "aarch64-linux") else "x86_64-linux"
+            if key not in manifest_groups:
+                manifest_groups[key] = {}
+            manifest_groups[key][arch] = mf
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    print(f"Found {len(manifest_groups)} unique package(s) from {len(manifest_files)} manifest files")
 
     # Setup output directories
     packages_dir = output_dir / "packages"
     packages_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process each manifest
+    # Process each manifest group
     successful = 0
     with tempfile.TemporaryDirectory(delete=not args.keep_temp) as tmpdir:
         if args.keep_temp:
             print(f"Temporary directory: {tmpdir}")
 
-        for manifest_file in manifest_files:
-            print(f"Processing {manifest_file.name}...")
+        for (dist, version), arch_manifests in manifest_groups.items():
+            archs = ", ".join(sorted(arch_manifests.keys()))
+            print(f"Processing {dist} v{version} ({archs})...")
 
-            try:
-                manifest = json.loads(manifest_file.read_text())
-            except json.JSONDecodeError as e:
-                print(f"  Error parsing manifest: {e}", file=sys.stderr)
+            # Load all manifests for this package
+            manifests: dict[str, dict[str, Any]] = {}
+            valid = True
+            for arch, manifest_file in arch_manifests.items():
+                try:
+                    manifest = json.loads(manifest_file.read_text())
+                except json.JSONDecodeError as e:
+                    print(f"  Error parsing manifest {manifest_file}: {e}", file=sys.stderr)
+                    valid = False
+                    break
+
+                # Validate required fields
+                required_fields = ["name", "version", "dist", "command", "store_path", "bin_relpath"]
+                missing = [f for f in required_fields if f not in manifest]
+                if missing:
+                    print(f"  Error: Missing required fields in {manifest_file}: {missing}", file=sys.stderr)
+                    valid = False
+                    break
+
+                manifests[arch] = manifest
+
+            if not valid:
                 continue
 
-            # Validate required fields
-            required_fields = ["name", "version", "dist", "command", "store_path", "bin_relpath"]
-            missing = [f for f in required_fields if f not in manifest]
-            if missing:
-                print(f"  Error: Missing required fields: {missing}", file=sys.stderr)
-                continue
-
-            # Generate wrapper project
-            project_name = normalize_name(manifest["dist"])
+            # Generate wrapper project with all arch manifests
+            project_name = normalize_name(dist)
             project_dir = Path(tmpdir) / project_name
-            generate_wrapper_project(manifest, project_dir)
+            generate_wrapper_project(manifests, project_dir)
 
             # Build sdist
             sdist_path = build_sdist(project_dir, packages_dir)
@@ -269,7 +304,7 @@ def main() -> int:
             else:
                 print(f"  Failed to build sdist", file=sys.stderr)
 
-    print(f"\nBuilt {successful}/{len(manifest_files)} sdists")
+    print(f"\nBuilt {successful}/{len(manifest_groups)} sdists")
 
     # Generate PEP 503 index at root
     if successful > 0:

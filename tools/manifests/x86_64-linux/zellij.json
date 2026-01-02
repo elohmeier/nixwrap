@@ -1,0 +1,94 @@
+{
+  "name": "zellij",
+  "version": "0.43.1",
+  "dist": "zellij",
+  "command": "zellij",
+  "description": "Nix package: zellij",
+  "store_path": "/nix/store/9k5mm8pkzsl3vw3zjvmi37cvcl00pszf-zellij-0.43.1",
+  "bin_relpath": "bin/zellij",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:0rwnwpf5gpf1b5y8sb5nq05ban5y271z989mi9qrzcbxf9xh1mf5",
+  "ld_linux": "lib/ld-linux-x86-64.so.2",
+  "closure": [
+    {
+      "store_path": "/nix/store/8idis3j5l13c3x74jl8xly0k4qyk9mx6-curl-8.17.0",
+      "nar_hash": "sha256:0fhx790xkx9bq9cj8yp0qg30bm56lig2yz23cx69vh71marwg9sj"
+    },
+    {
+      "store_path": "/nix/store/xm08aqdd7pxcdhm0ak6aqb1v7hw5q6ri-gcc-14.3.0-lib",
+      "nar_hash": "sha256:1azhvkm12jpccsl2897iabmnn40rbf4vn7sr125sfj8vbzxv8zgr"
+    },
+    {
+      "store_path": "/nix/store/xx7cm72qy2c0643cm1ipngd87aqwkcdp-glibc-2.40-66",
+      "nar_hash": "sha256:0193b1qc9lz4j9maib94y8f79lbvn440nim5vzb2shmk4c5rn8zs"
+    },
+    {
+      "store_path": "/nix/store/27r2vkndmz7q6gni64l84j46igsz7km4-c-ares-1.34.5",
+      "nar_hash": "sha256:054lbb5012din4kcfs4j7bxav9f4mf4ayrgnld8j912v2k30pzfs"
+    },
+    {
+      "store_path": "/nix/store/50b381c1c7h4ll8a40wqh3fcknwpnnck-ngtcp2-1.17.0",
+      "nar_hash": "sha256:14b6kjzv926jxz87rhjkf9lj8lqx77q3hbq6c1kkz3w66kqbg464"
+    },
+    {
+      "store_path": "/nix/store/61i74yjkj9p1qphfl7018ja4sdwkipx0-openssl-3.6.0",
+      "nar_hash": "sha256:09mvg34h92vs5kgxd66aihjs08n3mwm60bnwp22bwpdk1cdwxv51"
+    },
+    {
+      "store_path": "/nix/store/9z2jg63df52gd4nmbggjcw41cdi4m14p-krb5-1.22.1-lib",
+      "nar_hash": "sha256:0m4v3faga1nwy4pskg784i73d59xxslzlivhhrn7zvrbjl5i320j"
+    },
+    {
+      "store_path": "/nix/store/cn8ppsx5dns0n4naa4k5sc0siymg41vw-nghttp2-1.67.1-lib",
+      "nar_hash": "sha256:1anq7m5p7ikw91v1srydzwl7z2xvqqc3p74d5z85sq0z0nnaskva"
+    },
+    {
+      "store_path": "/nix/store/d3fj7k3aya8slkgm72gn5izyvnlkgx73-libpsl-0.21.5",
+      "nar_hash": "sha256:1ifqrxj8fm6a4hjyssv94zkk3gmhylzq06kgp50a9lc0la2bxq4p"
+    },
+    {
+      "store_path": "/nix/store/ggxfzhsmd3m54fac5xph7kva38k44mc2-nghttp3-1.12.0",
+      "nar_hash": "sha256:038k8f8i92khph2pkgnigrj70mfidqgfrshvql8lpmwl6pbnflgq"
+    },
+    {
+      "store_path": "/nix/store/hxcmad417fd8ql9ylx96xpak7da06yiv-libidn2-2.3.8",
+      "nar_hash": "sha256:05imy631wq6dk4ysyw6vr52fjy94xi65m3nqzczi7k490003b19c"
+    },
+    {
+      "store_path": "/nix/store/jrczm01vajmmh23wrzbgk51plwn7lfsi-libssh2-1.11.1",
+      "nar_hash": "sha256:1jk3r9g3ki2qifykm5afiwflss3m0lcrk2lpbrax4znq7wjh1afp"
+    },
+    {
+      "store_path": "/nix/store/l7xwm1f6f3zj2x8jwdbi8gdyfbx07sh7-zlib-1.3.1",
+      "nar_hash": "sha256:04dn4xkjwkxrp4ji8600hxaf5kvyx1sdv0939hpp95hx3cm8w5sw"
+    },
+    {
+      "store_path": "/nix/store/s7vmxmhkq439cjb7ag9w198p6dk7kl0w-zstd-1.5.7",
+      "nar_hash": "sha256:0ijngvlkwnv7y7dv2xb1sk6wx1q6bd50q3wz0w0jd6gv6fi68ycr"
+    },
+    {
+      "store_path": "/nix/store/v8czfabwiry1aik0j3b4mqkqvn7vnxfi-brotli-1.1.0-lib",
+      "nar_hash": "sha256:04vgcm6vwq3p308lpcb3pdplrn8rwa332rs5yx8sg9lbrjj4f8sy"
+    },
+    {
+      "store_path": "/nix/store/shs2lyjm5yv7fmg4pwyvrlv9zr4macmv-gcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1v91g9c1fv4cx2hp9xpg5znggprygz7sivki6x075r00132737i1"
+    },
+    {
+      "store_path": "/nix/store/2a3izq4hffdd9r9gb2w6q2ibdc86kss6-xgcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1rl3mrb910cx0qcw9s6rvri6ajl7p5p1nrvc2x1cyixngzw4dfhq"
+    },
+    {
+      "store_path": "/nix/store/h7rm00s43k24p73qw7wv1dw8iziqc054-keyutils-1.6.3-lib",
+      "nar_hash": "sha256:0vbrinzh24gcv2kh7zqykjxshm3ks5r93acqbk8n7r7fyzi028lj"
+    },
+    {
+      "store_path": "/nix/store/1rd1dikwmy9gnlk5911gf2wf5r8k9wdg-publicsuffix-list-0-unstable-2025-10-08",
+      "nar_hash": "sha256:1yajb0w4jmyxx3zamly0x388zsmyjjhbw0kvvlz892z1k6fzmh52"
+    },
+    {
+      "store_path": "/nix/store/3rkccxj7vi0p2a0d48c4a4z2vv2cni88-libunistring-1.4.1",
+      "nar_hash": "sha256:1dwicpbn3hykn7d3c19zh7y28awrpljv47mgsqn77cyv17s72d4y"
+    }
+  ]
+}

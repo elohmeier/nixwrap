@@ -1,0 +1,38 @@
+{
+  "name": "watchexec",
+  "version": "2.3.2",
+  "dist": "watchexec",
+  "command": "watchexec",
+  "description": "Nix package: watchexec",
+  "store_path": "/nix/store/vdgvgbzy8pijj1d252jcjih3gghcfrj2-watchexec-2.3.2",
+  "bin_relpath": "bin/watchexec",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:1i9c063sjh6y0bvwly7qy8iz96g0n06cy5769xdh7qza23g82c0f",
+  "ld_linux": "lib/ld-linux-x86-64.so.2",
+  "closure": [
+    {
+      "store_path": "/nix/store/xm08aqdd7pxcdhm0ak6aqb1v7hw5q6ri-gcc-14.3.0-lib",
+      "nar_hash": "sha256:1azhvkm12jpccsl2897iabmnn40rbf4vn7sr125sfj8vbzxv8zgr"
+    },
+    {
+      "store_path": "/nix/store/xx7cm72qy2c0643cm1ipngd87aqwkcdp-glibc-2.40-66",
+      "nar_hash": "sha256:0193b1qc9lz4j9maib94y8f79lbvn440nim5vzb2shmk4c5rn8zs"
+    },
+    {
+      "store_path": "/nix/store/shs2lyjm5yv7fmg4pwyvrlv9zr4macmv-gcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1v91g9c1fv4cx2hp9xpg5znggprygz7sivki6x075r00132737i1"
+    },
+    {
+      "store_path": "/nix/store/2a3izq4hffdd9r9gb2w6q2ibdc86kss6-xgcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1rl3mrb910cx0qcw9s6rvri6ajl7p5p1nrvc2x1cyixngzw4dfhq"
+    },
+    {
+      "store_path": "/nix/store/hxcmad417fd8ql9ylx96xpak7da06yiv-libidn2-2.3.8",
+      "nar_hash": "sha256:05imy631wq6dk4ysyw6vr52fjy94xi65m3nqzczi7k490003b19c"
+    },
+    {
+      "store_path": "/nix/store/3rkccxj7vi0p2a0d48c4a4z2vv2cni88-libunistring-1.4.1",
+      "nar_hash": "sha256:1dwicpbn3hykn7d3c19zh7y28awrpljv47mgsqn77cyv17s72d4y"
+    }
+  ]
+}

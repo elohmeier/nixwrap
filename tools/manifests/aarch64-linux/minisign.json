@@ -1,0 +1,34 @@
+{
+  "name": "minisign",
+  "version": "0.12",
+  "dist": "minisign",
+  "command": "minisign",
+  "description": "Nix package: minisign",
+  "store_path": "/nix/store/n3yrcci15adanf9kxlp9f3892amnn66h-minisign-0.12",
+  "bin_relpath": "bin/minisign",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:0v64lb7w5hkm35s9sfwx2bjfc0ap1d323v4091nr77qymqlggw8b",
+  "ld_linux": "lib/ld-linux-aarch64.so.1",
+  "closure": [
+    {
+      "store_path": "/nix/store/89n0gcl1yjp37ycca45rn50h7lms5p6f-glibc-2.40-66",
+      "nar_hash": "sha256:03m7bhyc3zg2axr9ha80zmbfgrp88z9ckmzfpidlwgfwvvhxya4m"
+    },
+    {
+      "store_path": "/nix/store/chp2vpwhd133fhhzq6v5dg4sg1kryzyf-libsodium-1.0.20",
+      "nar_hash": "sha256:0krcxcagyffkzaw37q5vz1ciav9awqab96hpfw1xlc20v9ihh5nc"
+    },
+    {
+      "store_path": "/nix/store/7yd21750d8mfw2ycsp2fiifa4l4wsscp-xgcc-14.3.0-libgcc",
+      "nar_hash": "sha256:08gdnwlldww3x2b8g7ikz81kl4zbvhy2z5qn7ynxjf78yn7bm59b"
+    },
+    {
+      "store_path": "/nix/store/fdy9f9amsb4c7qgvq5ifsk923p8sd3w5-libidn2-2.3.8",
+      "nar_hash": "sha256:044sklbv1f359czwsqic477rs29sxfl2dw2xn40cj4zgjpm6fz8r"
+    },
+    {
+      "store_path": "/nix/store/qmgi5gdgg4vf1lhshlwsr3i5hpsk8w4a-libunistring-1.4.1",
+      "nar_hash": "sha256:103qakcybjdfxrzxigq63w781lw0bh7z7b7a9im8vlpmas6mns8k"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+name: Update Manifests
+
+on:
+  schedule:
+    # Run weekly on Sunday at 00:00 UTC
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install zstandard
+
+      - name: Generate manifests for x86_64-linux
+        run: |
+          python tools/generate_manifests.py --system x86_64-linux --output tools/manifests/x86_64-linux
+
+      - name: Generate manifests for aarch64-linux
+        run: |
+          python tools/generate_manifests.py --system aarch64-linux --output tools/manifests/aarch64-linux
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet tools/manifests/ || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tools/manifests/
+          git commit -m "chore: update manifests $(date +%Y-%m-%d)"
+          git push
