@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nixwrap-core"
+version = "0.1.0"
+description = "Shared build backend for nixwrap packages"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.0",
+    "pytest>=8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nixwrap_core"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/nixwrap_core",
+    "README.md",
+    "pyproject.toml",
+]

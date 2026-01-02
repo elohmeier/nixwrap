@@ -1,0 +1,42 @@
+{
+  "name": "fd",
+  "version": "10.3.0",
+  "dist": "fd-find",
+  "command": "fd",
+  "description": "A simple, fast and user-friendly alternative to find",
+  "store_path": "/nix/store/qb9d3fma2z9xgf57bj44ygxak6s1bvw9-fd-10.3.0",
+  "bin_relpath": "bin/fd",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:1c661kdm8vmy4fyks5pwha4gwxk97x1169r5jkyp8yxjl7w4z4k1",
+  "ld_linux": "lib/ld-linux-x86-64.so.2",
+  "closure": [
+    {
+      "store_path": "/nix/store/j193mfi0f921y0kfs8vjc1znnr45ispv-glibc-2.40-66",
+      "nar_hash": "sha256:1vynnrb47ckg9k75vd9rizj81wbdbmjrxx1qywxfn90ay8ilv33a"
+    },
+    {
+      "store_path": "/nix/store/v8aiafkc4q3fj2qkd8bi8q4z3v9d8zkb-jemalloc-5.3.0-unstable-2025-09-12",
+      "nar_hash": "sha256:1hfbchkmshcj5gvj78zqv9s4hwqpaj9kjb4z8f3686vjb8mxqmia"
+    },
+    {
+      "store_path": "/nix/store/xc0ga87wdclrx54qjaryahkkmkmqi9qz-gcc-15.2.0-lib",
+      "nar_hash": "sha256:016k15asippkr3kcahbr6dj1zgv753px22vg0rddlhxv81xnni2s"
+    },
+    {
+      "store_path": "/nix/store/6h39qxzrm4i1fhl538knvyjapcdyasfx-xgcc-15.2.0-libgcc",
+      "nar_hash": "sha256:0bvlqny00vmrx0x95ai9bcl3qzr0iyy4fwhngng648psr12zff55"
+    },
+    {
+      "store_path": "/nix/store/kywwgk85nl83mpf10av3bvm2khdlq5ib-libidn2-2.3.8",
+      "nar_hash": "sha256:0qay9h1fnk472bys4yq4f2fjx5kaxkvf38pwnbylivr7xlq7ssxx"
+    },
+    {
+      "store_path": "/nix/store/b7kx9bkjsma9wslr1cg0316m5jy450l8-gcc-15.2.0-libgcc",
+      "nar_hash": "sha256:0pmnnjxncgc6yms0dc9ld7ia5kaiiw5kyjjm4r3305y2vx3rpcf9"
+    },
+    {
+      "store_path": "/nix/store/hlcdbvwjlzjd2x86fxghzj1gpzplccqw-libunistring-1.4.1",
+      "nar_hash": "sha256:060zdd4diyhzbcvc79hivq2m1fs01is2x2pjrqrs7lr5mjr4inj6"
+    }
+  ]
+}

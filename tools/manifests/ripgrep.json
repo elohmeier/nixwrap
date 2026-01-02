@@ -1,0 +1,42 @@
+{
+  "name": "ripgrep",
+  "version": "15.1.0",
+  "dist": "ripgrep",
+  "command": "rg",
+  "description": "A line-oriented search tool that recursively searches directories for a regex pattern",
+  "store_path": "/nix/store/0qh46n4bqwci1dli1bjqkavvzmdw87x3-ripgrep-15.1.0",
+  "bin_relpath": "bin/rg",
+  "cache_url": "https://cache.nixos.org",
+  "nar_hash": "sha256:1pbn7ylp83xgqxrp5ywzlg0xk7wbg6k8zpk9332nbxqsriayj2nm",
+  "ld_linux": "lib/ld-linux-x86-64.so.2",
+  "closure": [
+    {
+      "store_path": "/nix/store/j193mfi0f921y0kfs8vjc1znnr45ispv-glibc-2.40-66",
+      "nar_hash": "sha256:1vynnrb47ckg9k75vd9rizj81wbdbmjrxx1qywxfn90ay8ilv33a"
+    },
+    {
+      "store_path": "/nix/store/jggxi5a991sx5si6sv47y0l2y1nqlh0g-pcre2-10.46",
+      "nar_hash": "sha256:1234r2l6z3lplg3ms6dwjmz73fmcsgxr0x3pbjnp5f0kiv0mjn4q"
+    },
+    {
+      "store_path": "/nix/store/xc0ga87wdclrx54qjaryahkkmkmqi9qz-gcc-15.2.0-lib",
+      "nar_hash": "sha256:016k15asippkr3kcahbr6dj1zgv753px22vg0rddlhxv81xnni2s"
+    },
+    {
+      "store_path": "/nix/store/6h39qxzrm4i1fhl538knvyjapcdyasfx-xgcc-15.2.0-libgcc",
+      "nar_hash": "sha256:0bvlqny00vmrx0x95ai9bcl3qzr0iyy4fwhngng648psr12zff55"
+    },
+    {
+      "store_path": "/nix/store/kywwgk85nl83mpf10av3bvm2khdlq5ib-libidn2-2.3.8",
+      "nar_hash": "sha256:0qay9h1fnk472bys4yq4f2fjx5kaxkvf38pwnbylivr7xlq7ssxx"
+    },
+    {
+      "store_path": "/nix/store/b7kx9bkjsma9wslr1cg0316m5jy450l8-gcc-15.2.0-libgcc",
+      "nar_hash": "sha256:0pmnnjxncgc6yms0dc9ld7ia5kaiiw5kyjjm4r3305y2vx3rpcf9"
+    },
+    {
+      "store_path": "/nix/store/hlcdbvwjlzjd2x86fxghzj1gpzplccqw-libunistring-1.4.1",
+      "nar_hash": "sha256:060zdd4diyhzbcvc79hivq2m1fs01is2x2pjrqrs7lr5mjr4inj6"
+    }
+  ]
+}

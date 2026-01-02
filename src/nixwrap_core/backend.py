@@ -1,0 +1,615 @@
+"""PEP 517 build backend for nixwrap packages.
+
+This backend reads a nixwrap_manifest.json from the source tree,
+fetches the binary from the Nix cache, and builds a wheel with
+the binary embedded.
+"""
+
+from __future__ import annotations
+
+import base64
+import email.utils
+import hashlib
+import io
+import json
+import lzma
+import os
+import platform
+import re
+import stat
+import struct
+import sys
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+# NAR format constants
+NAR_MAGIC = b"nix-archive-1"
+NAR_VERSION_STRING = b"("
+
+# Nix base32 alphabet (note: no e, o, t, u)
+NIX32_ALPHABET = "0123456789abcdfghijklmnpqrsvwxyz"
+
+
+def _nix32_decode(s: str) -> bytes:
+    """Decode a nix32 (Nix's custom base32) encoded string to bytes.
+
+    This matches the algorithm in Nix's libutil/hash.cc.
+    """
+    lookup = {c: i for i, c in enumerate(NIX32_ALPHABET)}
+
+    # For SHA256 (32 bytes), we expect 52 characters
+    hash_size = (len(s) * 5) // 8
+    result = [0] * hash_size
+
+    for n in range(len(s)):
+        c = lookup.get(s[len(s) - n - 1])
+        if c is None:
+            raise ValueError(f"Invalid nix32 character: {s[len(s) - n - 1]}")
+        b = n * 5
+        i = b // 8
+        j = b % 8
+        result[i] |= (c << j) & 0xff
+        if i + 1 < hash_size:
+            result[i + 1] |= c >> (8 - j)
+
+    return bytes(result)
+
+
+def _read_string(data: io.BytesIO) -> bytes:
+    """Read a NAR string (length-prefixed, 8-byte aligned)."""
+    length_bytes = data.read(8)
+    if len(length_bytes) < 8:
+        raise ValueError("Unexpected end of NAR data")
+    (length,) = struct.unpack("<Q", length_bytes)
+    content = data.read(length)
+    if len(content) < length:
+        raise ValueError("Unexpected end of NAR data")
+    # Skip padding to 8-byte alignment
+    padding = (8 - (length % 8)) % 8
+    data.read(padding)
+    return content
+
+
+def _expect_string(data: io.BytesIO, expected: bytes) -> None:
+    """Read a string and verify it matches expected value."""
+    actual = _read_string(data)
+    if actual != expected:
+        raise ValueError(f"Expected {expected!r}, got {actual!r}")
+
+
+def _parse_nar_directory(data: io.BytesIO, base_path: Path) -> None:
+    """Parse a NAR directory recursively."""
+    while True:
+        token = _read_string(data)
+        if token == b")":
+            break
+        if token == b"entry":
+            _expect_string(data, b"(")
+            _expect_string(data, b"name")
+            name = _read_string(data).decode("utf-8")
+            _expect_string(data, b"node")
+            _parse_nar_node(data, base_path / name)
+            _expect_string(data, b")")
+        else:
+            raise ValueError(f"Unexpected token in directory: {token!r}")
+
+
+def _parse_nar_node(data: io.BytesIO, path: Path) -> None:
+    """Parse a single NAR node (file, directory, or symlink)."""
+    _expect_string(data, b"(")
+    _expect_string(data, b"type")
+    node_type = _read_string(data)
+
+    if node_type == b"regular":
+        executable = False
+        contents = b""
+        while True:
+            token = _read_string(data)
+            if token == b")":
+                break
+            if token == b"executable":
+                _expect_string(data, b"")
+                executable = True
+            elif token == b"contents":
+                contents = _read_string(data)
+            else:
+                raise ValueError(f"Unexpected token in regular file: {token!r}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(contents)
+        if executable:
+            path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    elif node_type == b"directory":
+        path.mkdir(parents=True, exist_ok=True)
+        _parse_nar_directory(data, path)
+
+    elif node_type == b"symlink":
+        _expect_string(data, b"target")
+        target = _read_string(data).decode("utf-8")
+        _expect_string(data, b")")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(target)
+
+    else:
+        raise ValueError(f"Unknown node type: {node_type!r}")
+
+
+def _parse_nar(nar_data: bytes, output_dir: Path) -> None:
+    """Parse a NAR archive and extract to output directory."""
+    data = io.BytesIO(nar_data)
+    _expect_string(data, NAR_MAGIC)
+    _parse_nar_node(data, output_dir)
+
+
+def _fetch_narinfo(cache_url: str, store_path: str) -> dict[str, str]:
+    """Fetch and parse narinfo from cache."""
+    # Extract hash from store path (e.g., /nix/store/abc123...-name -> abc123...)
+    store_hash = Path(store_path).name.split("-")[0]
+    narinfo_url = f"{cache_url}/{store_hash}.narinfo"
+
+    with httpx.Client(follow_redirects=True) as client:
+        response = client.get(narinfo_url)
+        response.raise_for_status()
+
+    result = {}
+    for line in response.text.splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            result[key.strip()] = value.strip()
+    return result
+
+
+def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) -> bytes:
+    """Fetch and decompress NAR from cache."""
+    nar_url = f"{cache_url}/{nar_path}"
+
+    with httpx.Client(follow_redirects=True) as client:
+        response = client.get(nar_url)
+        response.raise_for_status()
+        compressed_data = response.content
+
+    # Decompress based on extension
+    if nar_path.endswith(".xz"):
+        nar_data = lzma.decompress(compressed_data)
+    elif nar_path.endswith(".zst"):
+        try:
+            import zstandard
+        except ImportError:
+            raise ImportError("zstandard package required for .zst NAR files")
+        dctx = zstandard.ZstdDecompressor()
+        nar_data = dctx.decompress(compressed_data)
+    else:
+        nar_data = compressed_data
+
+    # Verify hash if provided
+    if expected_hash:
+        algo, expected = expected_hash.split(":", 1) if ":" in expected_hash else ("sha256", expected_hash)
+        if algo == "sha256":
+            actual_bytes = hashlib.sha256(nar_data).digest()
+            # Determine format of expected hash and compare
+            if len(expected) == 64:  # hex format
+                expected_bytes = bytes.fromhex(expected)
+            elif len(expected) == 52:  # nix32 format (32 bytes -> 52 chars in nix32)
+                expected_bytes = _nix32_decode(expected)
+            else:  # assume base64
+                expected_bytes = base64.b64decode(expected)
+            if actual_bytes != expected_bytes:
+                raise ValueError(f"NAR hash mismatch: expected {expected_bytes.hex()}, got {actual_bytes.hex()}")
+
+    return nar_data
+
+
+def _get_platform_tag() -> str:
+    """Get the wheel platform tag for the current system."""
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == "linux":
+        # Use manylinux for broad compatibility
+        if machine == "x86_64":
+            return "manylinux_2_17_x86_64"
+        elif machine == "aarch64":
+            return "manylinux_2_17_aarch64"
+        else:
+            return f"linux_{machine}"
+    elif system == "darwin":
+        if machine == "arm64":
+            return "macosx_11_0_arm64"
+        else:
+            return "macosx_10_9_x86_64"
+    else:
+        return f"{system}_{machine}"
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize package name for wheel filename."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _normalize_dist_name(name: str) -> str:
+    """Normalize distribution name for PEP 503."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _read_manifest(source_dir: Path) -> dict[str, Any]:
+    """Read the nixwrap manifest from source directory."""
+    manifest_path = source_dir / "nixwrap_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+    return json.loads(manifest_path.read_text())
+
+
+def _get_module_name(manifest: dict[str, Any]) -> str:
+    """Get the Python module name from manifest."""
+    return "nixwrap_tool_" + re.sub(r"[-_.]+", "_", manifest["name"]).lower()
+
+
+def _collect_libs(extract_dir: Path) -> list[tuple[str, bytes]]:
+    """Collect all .so files from an extracted NAR directory."""
+    libs = []
+    lib_dir = extract_dir / "lib"
+    if lib_dir.exists():
+        for so_file in lib_dir.rglob("*.so*"):
+            if so_file.is_file() and not so_file.is_symlink():
+                rel_path = so_file.relative_to(extract_dir)
+                libs.append((str(rel_path), so_file.read_bytes()))
+            elif so_file.is_symlink():
+                # Preserve symlinks by storing target
+                rel_path = so_file.relative_to(extract_dir)
+                target = os.readlink(so_file)
+                libs.append((str(rel_path), ("symlink", target)))
+    return libs
+
+
+def build_wheel(
+    wheel_directory: str,
+    config_settings: dict[str, Any] | None = None,
+    metadata_directory: str | None = None,
+) -> str:
+    """PEP 517 build_wheel hook."""
+    wheel_dir = Path(wheel_directory)
+    wheel_dir.mkdir(parents=True, exist_ok=True)
+
+    # Read manifest from current directory (the unpacked sdist)
+    source_dir = Path.cwd()
+    manifest = _read_manifest(source_dir)
+
+    dist_name = manifest["dist"]
+    version = manifest["version"]
+    command = manifest["command"]
+    store_path = manifest["store_path"]
+    bin_relpath = manifest["bin_relpath"]
+    cache_url = manifest.get("cache_url", "https://cache.nixos.org")
+    nar_hash = manifest.get("nar_hash")
+    ld_linux = manifest.get("ld_linux", "lib/ld-linux-x86-64.so.2")
+    closure = manifest.get("closure", [])
+
+    module_name = _get_module_name(manifest)
+    normalized_name = _normalize_name(dist_name)
+    platform_tag = _get_platform_tag()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        nix_store = tmpdir_path / "nix" / "store"
+        nix_store.mkdir(parents=True)
+
+        # Fetch and extract main package
+        narinfo = _fetch_narinfo(cache_url, store_path)
+        nar_path = narinfo.get("URL")
+        if not nar_path:
+            raise ValueError("No URL in narinfo")
+        file_hash = nar_hash or narinfo.get("NarHash")
+        nar_data = _fetch_nar(cache_url, nar_path, file_hash)
+
+        # Extract to nix/store/<hash>-<name>
+        store_name = Path(store_path).name
+        main_extract_dir = nix_store / store_name
+        _parse_nar(nar_data, main_extract_dir)
+
+        # Fetch and extract all closure dependencies
+        for dep in closure:
+            dep_store_path = dep["store_path"]
+            dep_nar_hash = dep.get("nar_hash")
+            dep_store_name = Path(dep_store_path).name
+
+            dep_narinfo = _fetch_narinfo(cache_url, dep_store_path)
+            dep_nar_path = dep_narinfo.get("URL")
+            if not dep_nar_path:
+                raise ValueError(f"No URL in narinfo for {dep_store_path}")
+            dep_file_hash = dep_nar_hash or dep_narinfo.get("NarHash")
+            dep_nar_data = _fetch_nar(cache_url, dep_nar_path, dep_file_hash)
+
+            dep_extract_dir = nix_store / dep_store_name
+            _parse_nar(dep_nar_data, dep_extract_dir)
+
+        # Find the binary
+        binary_path = main_extract_dir / bin_relpath
+        if not binary_path.exists():
+            raise FileNotFoundError(f"Binary not found at {bin_relpath}")
+
+        # Find ld-linux in the glibc package
+        ld_linux_path = None
+        for item in nix_store.iterdir():
+            if "glibc" in item.name:
+                candidate = item / ld_linux
+                if candidate.exists():
+                    ld_linux_path = candidate
+                    break
+
+        if not ld_linux_path:
+            raise FileNotFoundError(f"ld-linux not found at {ld_linux}")
+
+        # Build the wheel
+        wheel_name = f"{normalized_name}-{version}-py3-none-{platform_tag}.whl"
+        wheel_path = wheel_dir / wheel_name
+
+        with zipfile.ZipFile(wheel_path, "w", zipfile.ZIP_DEFLATED) as whl:
+            # Write the module __init__.py
+            whl.writestr(f"{module_name}/__init__.py", "")
+
+            # Write the runner module that uses bundled ld-linux
+            runner_code = f'''"""Runner for {command}."""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+
+def _setup_lib_symlinks(lib_dir: Path) -> None:
+    """Create soname symlinks for versioned libraries.
+
+    e.g., libfoo.so.1.2.3 -> libfoo.so.1, libfoo.so
+    """
+    for lib in lib_dir.glob("*.so.*"):
+        name = lib.name
+        # Skip non-.so files
+        if not re.match(r".*\\.so\\.[0-9]", name):
+            continue
+        # Match libXXX.so.MAJOR.MINOR.PATCH or libXXX.so.MAJOR
+        # Note: [^.]+ doesn't work for names like libstdc++, so use .+?
+        match = re.match(r"(lib.+?\\.so)\\.([0-9]+)(\\.[0-9.]+)?$", name)
+        if match:
+            base, major, rest = match.groups()
+            # Create libXXX.so.MAJOR symlink if versioned file exists
+            soname = f"{{base}}.{{major}}"
+            soname_path = lib_dir / soname
+            if not soname_path.exists():
+                try:
+                    soname_path.symlink_to(name)
+                except OSError:
+                    pass  # May fail if read-only or already exists
+
+
+def main() -> None:
+    """Execute the embedded binary using bundled dynamic linker."""
+    pkg_dir = Path(__file__).parent
+    lib_dir = pkg_dir / "lib"
+    bin_dir = pkg_dir / "bin"
+
+    ld_linux = lib_dir / "ld-linux-x86-64.so.2"
+    binary = bin_dir / "{command}"
+
+    if not ld_linux.exists():
+        print(f"Error: ld-linux not found at {{ld_linux}}", file=sys.stderr)
+        sys.exit(1)
+
+    if not binary.exists():
+        print(f"Error: Binary not found at {{binary}}", file=sys.stderr)
+        sys.exit(1)
+
+    # Create soname symlinks if needed
+    _setup_lib_symlinks(lib_dir)
+
+    # Execute via ld-linux with library path
+    os.execve(
+        str(ld_linux),
+        [str(ld_linux), "--library-path", str(lib_dir), str(binary)] + sys.argv[1:],
+        os.environ
+    )
+
+
+if __name__ == "__main__":
+    main()
+'''
+            whl.writestr(f"{module_name}/runner.py", runner_code)
+
+            # Collect only the essential files:
+            # 1. The main binary
+            # 2. ld-linux
+            # 3. Required .so files from lib/ directories (real files only, not symlinks)
+
+            # Write the binary
+            bin_arc_path = f"{module_name}/bin/{command}"
+            info = zipfile.ZipInfo(bin_arc_path)
+            info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
+            whl.writestr(info, binary_path.read_bytes())
+
+            # Write ld-linux
+            ld_arc_path = f"{module_name}/lib/ld-linux-x86-64.so.2"
+            info = zipfile.ZipInfo(ld_arc_path)
+            info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
+            whl.writestr(info, ld_linux_path.read_bytes())
+
+            # Collect all .so files from lib/ directories (only real files)
+            seen_libs = {"ld-linux-x86-64.so.2"}  # Already added above
+            for store_item in nix_store.iterdir():
+                lib_dir = store_item / "lib"
+                if not lib_dir.exists():
+                    continue
+                for so_file in lib_dir.glob("*.so*"):
+                    if so_file.is_symlink():
+                        continue  # Skip symlinks
+                    if not so_file.is_file():
+                        continue
+                    name = so_file.name
+                    # Skip non-.so files that match the glob (like .py files)
+                    if not re.match(r".*\.so(\.[0-9.]+)?$", name):
+                        continue
+                    if name in seen_libs:
+                        continue
+                    seen_libs.add(name)
+
+                    arc_path = f"{module_name}/lib/{name}"
+                    info = zipfile.ZipInfo(arc_path)
+                    info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
+                    whl.writestr(info, so_file.read_bytes())
+
+            # Write dist-info
+            dist_info = f"{normalized_name}-{version}.dist-info"
+
+            # METADATA
+            metadata = f"""Metadata-Version: 2.1
+Name: {dist_name}
+Version: {version}
+Summary: {manifest.get('description', f'nixwrap package for {command}')}
+"""
+            whl.writestr(f"{dist_info}/METADATA", metadata)
+
+            # WHEEL
+            wheel_metadata = f"""Wheel-Version: 1.0
+Generator: nixwrap-core
+Root-Is-Purelib: false
+Tag: py3-none-{platform_tag}
+"""
+            whl.writestr(f"{dist_info}/WHEEL", wheel_metadata)
+
+            # entry_points.txt
+            entry_points = f"""[console_scripts]
+{command} = {module_name}.runner:main
+"""
+            whl.writestr(f"{dist_info}/entry_points.txt", entry_points)
+
+            # RECORD (must be last, includes hashes of all files)
+            # Use csv module for proper escaping
+            import csv as csv_module
+            record_buffer = io.StringIO()
+            writer = csv_module.writer(record_buffer, lineterminator="\n")
+            for item in whl.namelist():
+                if item.endswith("/RECORD"):
+                    continue
+                data = whl.read(item)
+                digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+                writer.writerow([item, f"sha256={digest}", str(len(data))])
+            writer.writerow([f"{dist_info}/RECORD", "", ""])
+            whl.writestr(f"{dist_info}/RECORD", record_buffer.getvalue())
+
+    return wheel_name
+
+
+def build_sdist(
+    sdist_directory: str,
+    config_settings: dict[str, Any] | None = None,
+) -> str:
+    """PEP 517 build_sdist hook."""
+    sdist_dir = Path(sdist_directory)
+    sdist_dir.mkdir(parents=True, exist_ok=True)
+
+    source_dir = Path.cwd()
+    manifest = _read_manifest(source_dir)
+
+    dist_name = manifest["dist"]
+    version = manifest["version"]
+    normalized_name = _normalize_dist_name(dist_name)
+
+    sdist_name = f"{normalized_name}-{version}.tar.gz"
+    sdist_path = sdist_dir / sdist_name
+
+    module_name = _get_module_name(manifest)
+
+    with tarfile.open(sdist_path, "w:gz") as tar:
+        base_dir = f"{normalized_name}-{version}"
+
+        # Add manifest
+        manifest_data = json.dumps(manifest, indent=2).encode()
+        info = tarfile.TarInfo(f"{base_dir}/nixwrap_manifest.json")
+        info.size = len(manifest_data)
+        tar.addfile(info, io.BytesIO(manifest_data))
+
+        # Add pyproject.toml
+        pyproject = f"""[build-system]
+requires = ["nixwrap-core"]
+build-backend = "nixwrap_core.backend"
+
+[project]
+name = "{dist_name}"
+version = "{version}"
+description = "{manifest.get('description', f'nixwrap package for {manifest["command"]}')})"
+requires-python = ">=3.10"
+
+[project.scripts]
+{manifest["command"]} = "{module_name}.runner:main"
+"""
+        pyproject_data = pyproject.encode()
+        info = tarfile.TarInfo(f"{base_dir}/pyproject.toml")
+        info.size = len(pyproject_data)
+        tar.addfile(info, io.BytesIO(pyproject_data))
+
+        # Add PKG-INFO
+        pkg_info = f"""Metadata-Version: 2.1
+Name: {dist_name}
+Version: {version}
+Summary: {manifest.get('description', f'nixwrap package for {manifest["command"]}')}
+"""
+        pkg_info_data = pkg_info.encode()
+        info = tarfile.TarInfo(f"{base_dir}/PKG-INFO")
+        info.size = len(pkg_info_data)
+        tar.addfile(info, io.BytesIO(pkg_info_data))
+
+        # Add module directory
+        info = tarfile.TarInfo(f"{base_dir}/src/{module_name}")
+        info.type = tarfile.DIRTYPE
+        info.mode = 0o755
+        tar.addfile(info)
+
+        # Add __init__.py
+        init_data = b""
+        info = tarfile.TarInfo(f"{base_dir}/src/{module_name}/__init__.py")
+        info.size = 0
+        tar.addfile(info, io.BytesIO(init_data))
+
+        # Add runner.py placeholder (actual binary is fetched at wheel build time)
+        runner_code = f'''"""Runner for {manifest["command"]}."""
+
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> None:
+    """Execute the embedded binary."""
+    binary = Path(__file__).parent / "bin" / "{manifest["command"]}"
+    if not binary.exists():
+        print(f"Error: Binary not found at {{binary}}", file=sys.stderr)
+        sys.exit(1)
+    os.execv(str(binary), [str(binary)] + sys.argv[1:])
+
+
+if __name__ == "__main__":
+    main()
+'''
+        runner_data = runner_code.encode()
+        info = tarfile.TarInfo(f"{base_dir}/src/{module_name}/runner.py")
+        info.size = len(runner_data)
+        tar.addfile(info, io.BytesIO(runner_data))
+
+    return sdist_name
+
+
+def get_requires_for_build_wheel(
+    config_settings: dict[str, Any] | None = None,
+) -> list[str]:
+    """PEP 517 hook to get build requirements for wheel."""
+    return ["httpx>=0.27"]
+
+
+def get_requires_for_build_sdist(
+    config_settings: dict[str, Any] | None = None,
+) -> list[str]:
+    """PEP 517 hook to get build requirements for sdist."""
+    return []
