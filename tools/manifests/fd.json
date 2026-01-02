@@ -3,40 +3,44 @@
   "version": "10.3.0",
   "dist": "fd-find",
   "command": "fd",
-  "description": "A simple, fast and user-friendly alternative to find",
-  "store_path": "/nix/store/qb9d3fma2z9xgf57bj44ygxak6s1bvw9-fd-10.3.0",
+  "description": "Nix package: fd",
+  "store_path": "/nix/store/027m34av4nx0246ia2qdbfygzy9dbikw-fd-10.3.0",
   "bin_relpath": "bin/fd",
   "cache_url": "https://cache.nixos.org",
-  "nar_hash": "sha256:1c661kdm8vmy4fyks5pwha4gwxk97x1169r5jkyp8yxjl7w4z4k1",
+  "nar_hash": "sha256:0wyyywfrcnh462l00m6dzh3iv7wqzyq8bwa8fipvj86vfqd0anak",
   "ld_linux": "lib/ld-linux-x86-64.so.2",
   "closure": [
     {
-      "store_path": "/nix/store/j193mfi0f921y0kfs8vjc1znnr45ispv-glibc-2.40-66",
-      "nar_hash": "sha256:1vynnrb47ckg9k75vd9rizj81wbdbmjrxx1qywxfn90ay8ilv33a"
+      "store_path": "/nix/store/297k82b8m9fvkw727w4xn9z4qip46cgh-jemalloc-5.3.0-unstable-2025-09-12",
+      "nar_hash": "sha256:1sbfl95vwqjxv8d574vaaqdmkglmiki2vkxrkgdmp7x0vl6s8q07"
     },
     {
-      "store_path": "/nix/store/v8aiafkc4q3fj2qkd8bi8q4z3v9d8zkb-jemalloc-5.3.0-unstable-2025-09-12",
-      "nar_hash": "sha256:1hfbchkmshcj5gvj78zqv9s4hwqpaj9kjb4z8f3686vjb8mxqmia"
+      "store_path": "/nix/store/xm08aqdd7pxcdhm0ak6aqb1v7hw5q6ri-gcc-14.3.0-lib",
+      "nar_hash": "sha256:1azhvkm12jpccsl2897iabmnn40rbf4vn7sr125sfj8vbzxv8zgr"
     },
     {
-      "store_path": "/nix/store/xc0ga87wdclrx54qjaryahkkmkmqi9qz-gcc-15.2.0-lib",
-      "nar_hash": "sha256:016k15asippkr3kcahbr6dj1zgv753px22vg0rddlhxv81xnni2s"
+      "store_path": "/nix/store/xx7cm72qy2c0643cm1ipngd87aqwkcdp-glibc-2.40-66",
+      "nar_hash": "sha256:0193b1qc9lz4j9maib94y8f79lbvn440nim5vzb2shmk4c5rn8zs"
     },
     {
-      "store_path": "/nix/store/6h39qxzrm4i1fhl538knvyjapcdyasfx-xgcc-15.2.0-libgcc",
-      "nar_hash": "sha256:0bvlqny00vmrx0x95ai9bcl3qzr0iyy4fwhngng648psr12zff55"
+      "store_path": "/nix/store/rlq03x4cwf8zn73hxaxnx0zn5q9kifls-bash-5.3p3",
+      "nar_hash": "sha256:0f281dvqvi24p51asig2g7ymb83142ybzag2qk5n17mcj4clwz9d"
     },
     {
-      "store_path": "/nix/store/kywwgk85nl83mpf10av3bvm2khdlq5ib-libidn2-2.3.8",
-      "nar_hash": "sha256:0qay9h1fnk472bys4yq4f2fjx5kaxkvf38pwnbylivr7xlq7ssxx"
+      "store_path": "/nix/store/shs2lyjm5yv7fmg4pwyvrlv9zr4macmv-gcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1v91g9c1fv4cx2hp9xpg5znggprygz7sivki6x075r00132737i1"
     },
     {
-      "store_path": "/nix/store/b7kx9bkjsma9wslr1cg0316m5jy450l8-gcc-15.2.0-libgcc",
-      "nar_hash": "sha256:0pmnnjxncgc6yms0dc9ld7ia5kaiiw5kyjjm4r3305y2vx3rpcf9"
+      "store_path": "/nix/store/2a3izq4hffdd9r9gb2w6q2ibdc86kss6-xgcc-14.3.0-libgcc",
+      "nar_hash": "sha256:1rl3mrb910cx0qcw9s6rvri6ajl7p5p1nrvc2x1cyixngzw4dfhq"
     },
     {
-      "store_path": "/nix/store/hlcdbvwjlzjd2x86fxghzj1gpzplccqw-libunistring-1.4.1",
-      "nar_hash": "sha256:060zdd4diyhzbcvc79hivq2m1fs01is2x2pjrqrs7lr5mjr4inj6"
+      "store_path": "/nix/store/hxcmad417fd8ql9ylx96xpak7da06yiv-libidn2-2.3.8",
+      "nar_hash": "sha256:05imy631wq6dk4ysyw6vr52fjy94xi65m3nqzczi7k490003b19c"
+    },
+    {
+      "store_path": "/nix/store/3rkccxj7vi0p2a0d48c4a4z2vv2cni88-libunistring-1.4.1",
+      "nar_hash": "sha256:1dwicpbn3hykn7d3c19zh7y28awrpljv47mgsqn77cyv17s72d4y"
     }
   ]
 }
