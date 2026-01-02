@@ -7,14 +7,15 @@ the binary embedded.
 
 from __future__ import annotations
 
+import asyncio
 import base64
-import email.utils
 import hashlib
 import io
 import json
 import lzma
 import os
 import platform
+import random
 import re
 import stat
 import struct
@@ -26,6 +27,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
+# HTTP client configuration (inspired by nix-index)
+HTTP_CONNECT_TIMEOUT = 10.0  # seconds
+HTTP_READ_TIMEOUT = 30.0  # seconds
+HTTP_MAX_RETRIES = 10
+HTTP_MAX_RETRY_DELAY = 5.0  # seconds
+HTTP_BASE_RETRY_DELAY = 0.1  # seconds
 
 # NAR format constants
 NAR_MAGIC = b"nix-archive-1"
@@ -146,15 +154,59 @@ def _parse_nar(nar_data: bytes, output_dir: Path) -> None:
     _parse_nar_node(data, output_dir)
 
 
-def _fetch_narinfo(cache_url: str, store_path: str) -> dict[str, str]:
-    """Fetch and parse narinfo from cache."""
-    # Extract hash from store path (e.g., /nix/store/abc123...-name -> abc123...)
+def _create_http_client() -> httpx.AsyncClient:
+    """Create an async HTTP client with proper configuration."""
+    return httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(
+            connect=HTTP_CONNECT_TIMEOUT,
+            read=HTTP_READ_TIMEOUT,
+            write=HTTP_READ_TIMEOUT,
+            pool=HTTP_CONNECT_TIMEOUT,
+        ),
+        headers={
+            "Accept-Encoding": "gzip, deflate, br",
+        },
+    )
+
+
+async def _fetch_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    description: str = "resource",
+) -> httpx.Response:
+    """Fetch a URL with exponential backoff retry logic."""
+    last_error = None
+
+    for attempt in range(HTTP_MAX_RETRIES):
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            last_error = e
+            if attempt < HTTP_MAX_RETRIES - 1:
+                # Exponential backoff with jitter
+                delay = min(
+                    HTTP_MAX_RETRY_DELAY,
+                    HTTP_BASE_RETRY_DELAY * (2 ** attempt) + random.uniform(0, 0.1),
+                )
+                print(f"  Retry {attempt + 1}/{HTTP_MAX_RETRIES} for {description} after {delay:.2f}s: {e}", file=sys.stderr)
+                await asyncio.sleep(delay)
+
+    raise RuntimeError(f"Failed to fetch {description} after {HTTP_MAX_RETRIES} attempts: {last_error}")
+
+
+async def _fetch_narinfo_async(
+    client: httpx.AsyncClient,
+    cache_url: str,
+    store_path: str,
+) -> dict[str, str]:
+    """Fetch and parse narinfo from cache asynchronously."""
     store_hash = Path(store_path).name.split("-")[0]
     narinfo_url = f"{cache_url}/{store_hash}.narinfo"
 
-    with httpx.Client(follow_redirects=True) as client:
-        response = client.get(narinfo_url)
-        response.raise_for_status()
+    response = await _fetch_with_retry(client, narinfo_url, f"narinfo for {store_path}")
 
     result = {}
     for line in response.text.splitlines():
@@ -164,14 +216,17 @@ def _fetch_narinfo(cache_url: str, store_path: str) -> dict[str, str]:
     return result
 
 
-def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) -> bytes:
-    """Fetch and decompress NAR from cache."""
+async def _fetch_nar_async(
+    client: httpx.AsyncClient,
+    cache_url: str,
+    nar_path: str,
+    expected_hash: str | None = None,
+) -> bytes:
+    """Fetch and decompress NAR from cache asynchronously."""
     nar_url = f"{cache_url}/{nar_path}"
 
-    with httpx.Client(follow_redirects=True) as client:
-        response = client.get(nar_url)
-        response.raise_for_status()
-        compressed_data = response.content
+    response = await _fetch_with_retry(client, nar_url, f"NAR {nar_path}")
+    compressed_data = response.content
 
     # Decompress based on extension
     if nar_path.endswith(".xz"):
@@ -202,6 +257,160 @@ def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) 
                 raise ValueError(f"NAR hash mismatch: expected {expected_bytes.hex()}, got {actual_bytes.hex()}")
 
     return nar_data
+
+
+async def _fetch_file_listing_async(
+    client: httpx.AsyncClient,
+    cache_url: str,
+    store_path: str,
+) -> dict[str, Any] | None:
+    """Fetch file listing (.ls) from cache for pre-flight validation.
+
+    Returns the parsed JSON file listing, or None if not available.
+    Note: Some filenames may contain non-UTF8 bytes (e.g., locale data).
+    """
+    store_hash = Path(store_path).name.split("-")[0]
+
+    # Try uncompressed first, then xz-compressed
+    for suffix in [".ls", ".ls.xz"]:
+        url = f"{cache_url}/{store_hash}{suffix}"
+        try:
+            response = await client.get(url)
+            if response.status_code == 200:
+                data = response.content
+                if suffix == ".ls.xz":
+                    data = lzma.decompress(data)
+                # Decode with surrogateescape to handle non-UTF8 filenames
+                text = data.decode("utf-8", errors="surrogateescape")
+                return json.loads(text)
+        except (httpx.RequestError, json.JSONDecodeError, lzma.LZMAError, UnicodeDecodeError):
+            continue
+
+    return None
+
+
+async def _fetch_package_async(
+    client: httpx.AsyncClient,
+    cache_url: str,
+    store_path: str,
+    nar_hash: str | None,
+    nix_store: Path,
+) -> Path:
+    """Fetch a single package from the cache and extract it.
+
+    Returns the path to the extracted directory.
+    """
+    store_name = Path(store_path).name
+    extract_dir = nix_store / store_name
+
+    # Skip if already extracted (deduplication)
+    if extract_dir.exists():
+        return extract_dir
+
+    narinfo = await _fetch_narinfo_async(client, cache_url, store_path)
+    nar_path = narinfo.get("URL")
+    if not nar_path:
+        raise ValueError(f"No URL in narinfo for {store_path}")
+
+    file_hash = nar_hash or narinfo.get("NarHash")
+    nar_data = await _fetch_nar_async(client, cache_url, nar_path, file_hash)
+
+    _parse_nar(nar_data, extract_dir)
+    return extract_dir
+
+
+async def _fetch_all_packages_async(
+    cache_url: str,
+    store_path: str,
+    nar_hash: str | None,
+    closure: list[dict[str, str]],
+    nix_store: Path,
+    validate_binary: str | None = None,
+) -> Path:
+    """Fetch the main package and all closure dependencies in parallel.
+
+    Args:
+        cache_url: Base URL of the Nix binary cache
+        store_path: Store path of the main package
+        nar_hash: Expected NAR hash of the main package
+        closure: List of closure dependencies with store_path and nar_hash
+        nix_store: Directory to extract packages into
+        validate_binary: If set, validate this binary path exists via .ls file
+
+    Returns:
+        Path to the extracted main package directory.
+    """
+    async with _create_http_client() as client:
+        # Optional pre-flight validation using .ls file
+        if validate_binary:
+            print(f"  Validating binary path: {validate_binary}", file=sys.stderr)
+            listing = await _fetch_file_listing_async(client, cache_url, store_path)
+            if listing:
+                # Navigate the listing to check if binary exists
+                parts = validate_binary.split("/")
+                node = listing
+                for part in parts:
+                    if node.get("type") == "directory" and "entries" in node:
+                        node = node["entries"].get(part)
+                        if node is None:
+                            raise FileNotFoundError(
+                                f"Pre-flight validation failed: {validate_binary} not found in file listing"
+                            )
+                    else:
+                        break
+                print(f"  Pre-flight validation passed", file=sys.stderr)
+
+        # Create tasks for all packages (main + closure)
+        tasks = []
+
+        # Main package
+        tasks.append(_fetch_package_async(client, cache_url, store_path, nar_hash, nix_store))
+
+        # Closure dependencies
+        for dep in closure:
+            tasks.append(
+                _fetch_package_async(
+                    client,
+                    cache_url,
+                    dep["store_path"],
+                    dep.get("nar_hash"),
+                    nix_store,
+                )
+            )
+
+        # Fetch all packages in parallel
+        print(f"  Fetching {len(tasks)} packages in parallel...", file=sys.stderr)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Check for errors
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                pkg = store_path if i == 0 else closure[i - 1]["store_path"]
+                raise RuntimeError(f"Failed to fetch {pkg}: {result}") from result
+
+        # Return the main package directory (first result)
+        return results[0]
+
+
+# Synchronous wrappers for the PEP 517 hooks
+def _fetch_narinfo(cache_url: str, store_path: str) -> dict[str, str]:
+    """Fetch and parse narinfo from cache (synchronous wrapper)."""
+
+    async def _inner():
+        async with _create_http_client() as client:
+            return await _fetch_narinfo_async(client, cache_url, store_path)
+
+    return asyncio.run(_inner())
+
+
+def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) -> bytes:
+    """Fetch and decompress NAR from cache (synchronous wrapper)."""
+
+    async def _inner():
+        async with _create_http_client() as client:
+            return await _fetch_nar_async(client, cache_url, nar_path, expected_hash)
+
+    return asyncio.run(_inner())
 
 
 def _get_platform_tag() -> str:
@@ -298,34 +507,17 @@ def build_wheel(
         nix_store = tmpdir_path / "nix" / "store"
         nix_store.mkdir(parents=True)
 
-        # Fetch and extract main package
-        narinfo = _fetch_narinfo(cache_url, store_path)
-        nar_path = narinfo.get("URL")
-        if not nar_path:
-            raise ValueError("No URL in narinfo")
-        file_hash = nar_hash or narinfo.get("NarHash")
-        nar_data = _fetch_nar(cache_url, nar_path, file_hash)
-
-        # Extract to nix/store/<hash>-<name>
-        store_name = Path(store_path).name
-        main_extract_dir = nix_store / store_name
-        _parse_nar(nar_data, main_extract_dir)
-
-        # Fetch and extract all closure dependencies
-        for dep in closure:
-            dep_store_path = dep["store_path"]
-            dep_nar_hash = dep.get("nar_hash")
-            dep_store_name = Path(dep_store_path).name
-
-            dep_narinfo = _fetch_narinfo(cache_url, dep_store_path)
-            dep_nar_path = dep_narinfo.get("URL")
-            if not dep_nar_path:
-                raise ValueError(f"No URL in narinfo for {dep_store_path}")
-            dep_file_hash = dep_nar_hash or dep_narinfo.get("NarHash")
-            dep_nar_data = _fetch_nar(cache_url, dep_nar_path, dep_file_hash)
-
-            dep_extract_dir = nix_store / dep_store_name
-            _parse_nar(dep_nar_data, dep_extract_dir)
+        # Fetch and extract main package and all closure dependencies in parallel
+        main_extract_dir = asyncio.run(
+            _fetch_all_packages_async(
+                cache_url=cache_url,
+                store_path=store_path,
+                nar_hash=nar_hash,
+                closure=closure,
+                nix_store=nix_store,
+                validate_binary=bin_relpath,  # Pre-flight validation
+            )
+        )
 
         # Find the binary
         binary_path = main_extract_dir / bin_relpath
