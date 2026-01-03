@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nixwrap-index"
+version = "0.0.1"
+description = "Nix-index database for nixwrap"
+readme = "../README.md"
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nixwrap_index"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/nixwrap_index/data" = "nixwrap_index/data"

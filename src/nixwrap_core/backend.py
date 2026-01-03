@@ -1,10 +1,13 @@
 """PEP 517 build backend for nixwrap packages.
 
-This backend reads a nixwrap_manifest.json from the source tree,
-fetches the binary from the Nix cache, and builds a wheel with
-the binary embedded.
+This backend can either:
+1. Read a nixwrap_manifest.json from the source tree (legacy)
+2. Query nixwrap-index via [tool.nixwrap] in pyproject.toml (new)
 
-Uses only Python stdlib for zero external dependencies.
+Then fetches the binary from the Nix cache and builds a wheel
+with the binary embedded.
+
+Uses only Python stdlib for zero external dependencies (Python 3.14+).
 """
 
 from __future__ import annotations
@@ -29,6 +32,16 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any
+
+try:
+    import compression.zstd as zstd_stdlib  # Python 3.14+
+except ImportError:
+    zstd_stdlib = None
+
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    tomllib = None
 
 # HTTP client configuration (inspired by nix-index)
 HTTP_TIMEOUT = 30  # seconds
@@ -208,12 +221,15 @@ def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) 
     if nar_path.endswith(".xz"):
         nar_data = lzma.decompress(compressed_data)
     elif nar_path.endswith(".zst"):
-        try:
-            import zstandard
-        except ImportError:
-            raise ImportError("zstandard package required for .zst NAR files")
-        dctx = zstandard.ZstdDecompressor()
-        nar_data = dctx.decompress(compressed_data)
+        if zstd_stdlib:
+            nar_data = zstd_stdlib.decompress(compressed_data)
+        else:
+            try:
+                import zstandard
+            except ImportError:
+                raise ImportError("zstandard package or Python 3.14+ required for .zst NAR files")
+            dctx = zstandard.ZstdDecompressor()
+            nar_data = dctx.decompress(compressed_data)
     else:
         nar_data = compressed_data
 
@@ -427,6 +443,152 @@ def _read_manifest(source_dir: Path) -> dict[str, Any]:
     raise FileNotFoundError(f"No manifest found in {source_dir}")
 
 
+def _read_pyproject(source_dir: Path) -> dict[str, Any]:
+    """Read pyproject.toml from source directory."""
+    pyproject_path = source_dir / "pyproject.toml"
+    if not pyproject_path.exists():
+        raise FileNotFoundError(f"No pyproject.toml found in {source_dir}")
+
+    if tomllib:
+        return tomllib.loads(pyproject_path.read_text())
+    else:
+        # Fallback: simple TOML parsing for [tool.nixwrap] section
+        # This is a minimal parser for the specific format we need
+        content = pyproject_path.read_text()
+        result: dict[str, Any] = {"tool": {"nixwrap": {}}}
+        in_nixwrap = False
+        for line in content.splitlines():
+            line = line.strip()
+            if line == "[tool.nixwrap]":
+                in_nixwrap = True
+            elif line.startswith("["):
+                in_nixwrap = False
+            elif in_nixwrap and "=" in line:
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                result["tool"]["nixwrap"][key] = value
+        return result
+
+
+def _compute_closure(
+    cache_url: str,
+    store_path: str,
+    max_workers: int = 16,
+) -> tuple[str, list[dict[str, str]]]:
+    """Compute transitive closure by walking narinfo References.
+
+    Returns:
+        Tuple of (main_nar_hash, closure_list)
+    """
+    seen: set[str] = set()
+    closure: list[dict[str, str]] = []
+    queue = [store_path]
+    main_name = Path(store_path).name
+    main_nar_hash = ""
+
+    while queue:
+        # Fetch all current queue items in parallel
+        batch = []
+        while queue and len(batch) < max_workers * 2:
+            path = queue.pop(0)
+            name = Path(path).name
+            if name not in seen:
+                seen.add(name)
+                batch.append(path)
+
+        if not batch:
+            break
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fetch_narinfo, cache_url, p): p for p in batch}
+            for future in concurrent.futures.as_completed(futures):
+                path = futures[future]
+                name = Path(path).name
+                try:
+                    narinfo = future.result()
+                except Exception:
+                    continue
+
+                if not narinfo:
+                    continue
+
+                nar_hash = narinfo.get("NarHash", "")
+
+                if name == main_name:
+                    main_nar_hash = nar_hash
+                else:
+                    closure.append({
+                        "store_path": path,
+                        "nar_hash": nar_hash,
+                    })
+
+                refs = narinfo.get("References", "").split()
+                for ref in refs:
+                    if ref not in seen:
+                        queue.append(f"/nix/store/{ref}")
+
+    return main_nar_hash, closure
+
+
+def _build_manifest_from_index(source_dir: Path) -> dict[str, Any]:
+    """Build a manifest by querying nixwrap-index.
+
+    Reads [tool.nixwrap] from pyproject.toml, queries the index,
+    and computes closure at build time.
+    """
+    from .index import NixIndex, select_primary_binary
+
+    pyproject = _read_pyproject(source_dir)
+    nixwrap_config = pyproject.get("tool", {}).get("nixwrap", {})
+
+    attr = nixwrap_config.get("attr")
+    if not attr:
+        raise ValueError("No [tool.nixwrap].attr found in pyproject.toml")
+
+    cache_url = nixwrap_config.get("cache_url", "https://cache.nixos.org")
+
+    print(f"  Querying nix-index for {attr}...", file=sys.stderr)
+    index = NixIndex()
+    pkg = index.find_package(attr)
+    if not pkg:
+        raise ValueError(f"Package {attr} not found in nix-index")
+
+    # Select primary binary
+    primary_binary = select_primary_binary(pkg.binaries, pkg.name)
+
+    # Compute closure by fetching narinfo and walking References
+    print(f"  Computing closure for {pkg.store_path}...", file=sys.stderr)
+    nar_hash, closure = _compute_closure(cache_url, pkg.store_path)
+
+    if not nar_hash:
+        raise ValueError(f"Could not fetch narinfo for {pkg.store_path}")
+
+    # Determine ld-linux path based on system
+    if "aarch64" in pkg.system:
+        ld_linux = "lib/ld-linux-aarch64.so.1"
+    else:
+        ld_linux = "lib/ld-linux-x86-64.so.2"
+
+    # Get dist name from pyproject or derive from attr
+    project = pyproject.get("project", {})
+    dist_name = project.get("name", attr)
+
+    return {
+        "name": attr,
+        "dist": dist_name,
+        "version": pkg.version,
+        "command": primary_binary.command,
+        "description": f"Nix package: {attr}",
+        "store_path": pkg.store_path,
+        "bin_relpath": primary_binary.path,
+        "cache_url": cache_url,
+        "nar_hash": nar_hash,
+        "ld_linux": ld_linux,
+        "closure": closure,
+    }
+
+
 def _get_module_name(manifest: dict[str, Any]) -> str:
     """Get the Python module name from manifest."""
     return "nixwrap_tool_" + re.sub(r"[-_.]+", "_", manifest["name"]).lower()
@@ -458,9 +620,19 @@ def build_wheel(
     wheel_dir = Path(wheel_directory)
     wheel_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read manifest from current directory (the unpacked sdist)
     source_dir = Path.cwd()
-    manifest = _read_manifest(source_dir)
+
+    # Try new approach: query nixwrap-index via [tool.nixwrap]
+    try:
+        pyproject = _read_pyproject(source_dir)
+        if pyproject.get("tool", {}).get("nixwrap", {}).get("attr"):
+            manifest = _build_manifest_from_index(source_dir)
+        else:
+            # Fall back to legacy manifest files
+            manifest = _read_manifest(source_dir)
+    except FileNotFoundError:
+        # No pyproject.toml, try legacy manifest
+        manifest = _read_manifest(source_dir)
 
     dist_name = manifest["dist"]
     version = manifest["version"]

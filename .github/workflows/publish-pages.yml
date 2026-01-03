@@ -9,6 +9,7 @@ on:
     paths:
       - "tools/**"
       - "src/**"
+      - "nixwrap-index/**"
       - "pyproject.toml"
       - ".github/workflows/publish-pages.yml"
   workflow_dispatch:
@@ -29,26 +30,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
+          allow-prereleases: true
 
-      - name: Install dependencies
-        run: |
-          pip install build zstandard
+      - name: Install build tools
+        run: pip install build hatchling
 
-      - name: Install nixwrap-core
+      - name: Download nix-index databases
         run: |
-          pip install -e .
+          mkdir -p nixwrap-index/src/nixwrap_index/data
+          echo "Downloading x86_64-linux index..."
+          curl -L -o nixwrap-index/src/nixwrap_index/data/index-x86_64-linux \
+            https://github.com/nix-community/nix-index-database/releases/latest/download/index-x86_64-linux
+          echo "Downloading aarch64-linux index..."
+          curl -L -o nixwrap-index/src/nixwrap_index/data/index-aarch64-linux \
+            https://github.com/nix-community/nix-index-database/releases/latest/download/index-aarch64-linux
+          ls -lh nixwrap-index/src/nixwrap_index/data/
 
       - name: Build nixwrap-core wheel
-        run: |
-          python -m build --wheel --outdir gh-pages/packages/
+        run: python -m build --wheel --outdir gh-pages/packages/
 
-      - name: Generate manifests and build sdists
+      - name: Build nixwrap-index wheel
+        run: python -m build --wheel --outdir gh-pages/packages/ nixwrap-index/
+
+      - name: Install packages for stub generation
         run: |
-          python tools/generate_manifests.py --workers 16 | python tools/build_index.py --out gh-pages
+          pip install gh-pages/packages/nixwrap_core-*.whl
+          pip install gh-pages/packages/nixwrap_index-*.whl
+
+      - name: Generate stub sdists and PEP 503 index
+        run: python tools/generate_stubs.py --output gh-pages/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
