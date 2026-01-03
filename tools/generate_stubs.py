@@ -56,7 +56,7 @@ def generate_stub_sdist(
 
     # Create pyproject.toml content
     pyproject = f'''[build-system]
-requires = ["nixwrap>=0.4", "nixwrap-index"]
+requires = ["nixwrap>=0.7"]
 build-backend = "nixwrap.backend"
 
 [project]

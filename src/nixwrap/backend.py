@@ -507,10 +507,12 @@ def _compute_closure(
                 name = Path(path).name
                 try:
                     narinfo = future.result()
-                except Exception:
+                except Exception as e:
+                    print(f"  Warning: Failed to fetch narinfo for {name}: {e}", file=sys.stderr)
                     continue
 
                 if not narinfo:
+                    print(f"  Warning: Empty narinfo for {name}", file=sys.stderr)
                     continue
 
                 nar_hash = narinfo.get("NarHash", "")
@@ -559,7 +561,13 @@ def _build_manifest_from_index(source_dir: Path) -> dict[str, Any]:
 
     # Compute closure by fetching narinfo and walking References
     print(f"  Computing closure for {pkg.store_path}...", file=sys.stderr)
-    nar_hash, closure = _compute_closure(cache_url, pkg.store_path)
+    try:
+        nar_hash, closure = _compute_closure(cache_url, pkg.store_path)
+    except Exception as e:
+        print(f"  Error computing closure: {e}", file=sys.stderr)
+        raise
+
+    print(f"  Closure computed: nar_hash={nar_hash[:20] if nar_hash else 'EMPTY'}..., {len(closure)} deps", file=sys.stderr)
 
     if not nar_hash:
         raise ValueError(f"Could not fetch narinfo for {pkg.store_path}")
