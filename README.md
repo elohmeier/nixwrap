@@ -40,11 +40,35 @@ rg --version
 
 ## How It Works
 
+Both modes share the same core process:
+
 1. **Package Discovery**: Queries the [nix-index-database](https://github.com/nix-community/nix-index-database) to find packages and their binaries
 2. **Closure Computation**: Fetches narinfo files to compute the full dependency closure
 3. **Binary Fetching**: Downloads and extracts NAR archives from the Nix binary cache
 4. **Patching**: Uses patchelf to fix binaries with hardcoded `/nix/store` paths
 5. **Execution**: Runs binaries via a bundled `ld-linux` with the correct library path
+
+### CLI Mode
+
+When using `nixwrap <package>`, binaries are cached locally:
+
+```
+~/.cache/nixwrap/
+  nix/store/          # Extracted packages and dependencies
+  packages/           # Package metadata cache (speeds up repeated runs)
+```
+
+The first run downloads and patches the binary. Subsequent runs use the cached version.
+
+### Index Mode
+
+When installing from the PEP 503 index, the build backend:
+
+1. Fetches all dependencies at wheel build time
+2. Patches binaries and bundles them directly into the wheel
+3. Installs the wheel with all binaries as package data
+
+This results in a self-contained Python package with no external cache.
 
 ## Repository Structure
 
