@@ -312,7 +312,7 @@ def main() -> int:
         generate_pep503_index(packages_dir, output_dir)
         print(f"Index written to {output_dir}")
 
-    return 0 if successful == len(manifest_files) else 1
+    return 0 if successful == len(manifest_groups) else 1
 
 
 if __name__ == "__main__":
