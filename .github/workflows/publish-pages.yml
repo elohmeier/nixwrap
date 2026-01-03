@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "tools.txt"
+      - "tools/**"
       - "src/**"
       - "pyproject.toml"
       - ".github/workflows/publish-pages.yml"
