@@ -228,7 +228,6 @@ def run_package(attr: str, args: list[str]) -> int:
     library_path = ":".join(lib_paths)
 
     # Execute
-    print(f"Running {command}...", file=sys.stderr)
     os.execve(
         str(ld_linux_path),
         [str(ld_linux_path), "--library-path", library_path, str(binary_path)] + args,
