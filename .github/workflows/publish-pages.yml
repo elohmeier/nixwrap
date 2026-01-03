@@ -1,8 +1,16 @@
 name: Publish to GitHub Pages
 
 on:
+  schedule:
+    # Run weekly on Sunday at 00:00 UTC to pick up nixpkgs updates
+    - cron: "0 0 * * 0"
   push:
     branches: [main]
+    paths:
+      - "tools.txt"
+      - "src/**"
+      - "pyproject.toml"
+      - ".github/workflows/publish-pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -26,9 +34,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
-          pip install build
+          pip install build zstandard
 
       - name: Install nixwrap-core
         run: |
@@ -38,9 +46,9 @@ jobs:
         run: |
           python -m build --wheel --outdir gh-pages/packages/
 
-      - name: Build tool sdists and generate index
+      - name: Generate manifests and build sdists
         run: |
-          python tools/build_index.py --manifests tools/manifests --out gh-pages
+          python tools/generate_manifests.py | python tools/build_index.py --out gh-pages
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
