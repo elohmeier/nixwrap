@@ -210,6 +210,11 @@ def main() -> int:
         help="Nix system to use for package discovery",
     )
     parser.add_argument(
+        "--index-path",
+        type=Path,
+        help="Direct path to nix-index file (for testing without nixwrap-index installed)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -220,8 +225,16 @@ def main() -> int:
     packages_dir = args.output / "packages"
     packages_dir.mkdir(parents=True, exist_ok=True)
 
+    # Determine index path
+    index_path = args.index_path
+    if not index_path:
+        # Try default location in nixwrap-index package data
+        default_path = Path(__file__).parent.parent / "nixwrap-index" / "src" / "nixwrap_index" / "data" / f"index-{args.system}"
+        if default_path.exists():
+            index_path = default_path
+
     print(f"Loading nix-index for {args.system}...", file=sys.stderr)
-    index = NixIndex(args.system)
+    index = NixIndex(args.system, index_path=index_path)
     index.load()
 
     all_attrs = index.list_packages()

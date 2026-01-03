@@ -22,6 +22,7 @@ ENV/
 
 # Generated files
 gh-pages/
+nixwrap-index/src/nixwrap_index/data/index-*
 
 # OS
 .DS_Store

@@ -11,7 +11,32 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import compression.zstd  # Python 3.14+
+# Try Python 3.14+ stdlib first, fall back to zstandard package
+try:
+    import compression.zstd as zstd
+
+    def decompress_zstd_stream(f) -> bytes:
+        """Decompress zstd stream from file object."""
+        compressed_data = f.read()
+        return zstd.decompress(compressed_data)
+except ImportError:
+    try:
+        import zstandard
+
+        def decompress_zstd_stream(f) -> bytes:
+            """Decompress zstd stream from file object."""
+            dctx = zstandard.ZstdDecompressor()
+            reader = dctx.stream_reader(f)
+            chunks = []
+            while True:
+                chunk = reader.read(4 * 1024 * 1024)  # 4MB chunks
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks)
+    except ImportError:
+        def decompress_zstd_stream(f) -> bytes:
+            raise ImportError("Python 3.14+ or zstandard package required")
 
 
 # Pre-compiled regex patterns for speed
@@ -80,9 +105,8 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
             raise ValueError(f"Invalid nix-index magic: {magic!r}")
         f.read(8)  # version
 
-        # Decompress using Python 3.14 stdlib
-        compressed_data = f.read()
-        data = compression.zstd.decompress(compressed_data)
+        # Decompress using zstd streaming
+        data = decompress_zstd_stream(f)
 
     # Pass 1: Build hash -> package info lookup
     hash_to_pkg: dict[str, PackageInfo] = {}
@@ -141,25 +165,32 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
 class NixIndex:
     """Query nix-index-database for package information."""
 
-    def __init__(self, system: str | None = None):
+    def __init__(self, system: str | None = None, index_path: Path | None = None):
         """Initialize the index.
 
         Args:
             system: Nix system identifier. If None, auto-detected.
+            index_path: Direct path to index file. If None, uses nixwrap-index package.
         """
         self.system = system or detect_system()
+        self._index_path = index_path
         self._packages: dict[str, PackageInfo] = {}
         self._loaded = False
 
     def load(self) -> None:
-        """Parse the nix-index database from nixwrap-index package."""
+        """Parse the nix-index database."""
         if self._loaded:
             return
 
-        from nixwrap_index import get_index
+        if self._index_path:
+            # Direct path provided
+            self._packages = _parse_index(self._index_path)
+        else:
+            # Use nixwrap-index package
+            from nixwrap_index import get_index
 
-        with get_index(self.system) as path:
-            self._packages = _parse_index(path)
+            with get_index(self.system) as path:
+                self._packages = _parse_index(path)
 
         self._loaded = True
 
