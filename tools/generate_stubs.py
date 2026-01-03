@@ -49,8 +49,8 @@ def generate_stub_sdist(
     Returns:
         Path to the created sdist, or None on failure
     """
-    # Use command as dist name (more user-friendly)
-    dist_name = command
+    # Use attr as dist name (what users search for, e.g. "ripgrep" not "rg")
+    dist_name = attr
     normalized_name = normalize_name(dist_name)
     module_name = "nixwrap_tool_" + normalize_module_name(attr)
 
