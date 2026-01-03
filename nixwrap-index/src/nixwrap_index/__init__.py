@@ -22,12 +22,32 @@ def get_index(system: str) -> Generator[Path, None, None]:
     Yields:
         Path to the index file (extracted to temp if needed for zip installs)
 
+    Raises:
+        FileNotFoundError: If the index for the requested system is not available.
+            This can happen if you install the wrong platform-specific wheel.
+
     Example:
         >>> with get_index("x86_64-linux") as path:
         ...     data = path.read_bytes()
     """
-    ref = files("nixwrap_index.data").joinpath(f"index-{system}")
+    data_dir = files("nixwrap_index.data")
+    index_name = f"index-{system}"
+
+    # Check if the index exists
+    try:
+        ref = data_dir.joinpath(index_name)
+    except TypeError:
+        # Fallback for older Python versions
+        ref = data_dir / index_name
+
     with as_file(ref) as path:
+        if not path.exists():
+            available = get_available_systems()
+            raise FileNotFoundError(
+                f"Index for {system} not found. "
+                f"Available: {', '.join(available) or 'none'}. "
+                f"You may need to install the correct platform-specific nixwrap-index wheel."
+            )
         yield path
 
 

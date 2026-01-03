@@ -16,6 +16,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            platform_tag: manylinux_2_17_x86_64
+          - arch: aarch64
+            platform_tag: manylinux_2_17_aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -26,17 +33,13 @@ jobs:
           allow-prereleases: true
 
       - name: Install build tools
-        run: pip install build
+        run: pip install build wheel
 
-      - name: Download nix-index databases
+      - name: Download nix-index database (${{ matrix.arch }})
         run: |
           mkdir -p nixwrap-index/src/nixwrap_index/data
-          echo "Downloading x86_64-linux index..."
-          curl -L -o nixwrap-index/src/nixwrap_index/data/index-x86_64-linux \
-            https://github.com/nix-community/nix-index-database/releases/latest/download/index-x86_64-linux
-          echo "Downloading aarch64-linux index..."
-          curl -L -o nixwrap-index/src/nixwrap_index/data/index-aarch64-linux \
-            https://github.com/nix-community/nix-index-database/releases/latest/download/index-aarch64-linux
+          curl -L -o nixwrap-index/src/nixwrap_index/data/index-${{ matrix.arch }}-linux \
+            https://github.com/nix-community/nix-index-database/releases/latest/download/index-${{ matrix.arch }}-linux
           ls -lh nixwrap-index/src/nixwrap_index/data/
 
       - name: Set version from date
@@ -44,15 +47,35 @@ jobs:
           VERSION=$(date +%Y.%-m.%-d)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           sed -i "s/version = \".*\"/version = \"$VERSION\"/" nixwrap-index/pyproject.toml
-          cat nixwrap-index/pyproject.toml
 
-      - name: Build package
-        run: python -m build nixwrap-index/
+      - name: Build platform-specific wheel
+        run: |
+          cd nixwrap-index
+          python -m build --wheel
+
+          # Repack wheel with correct platform tag
+          cd dist
+          for f in *.whl; do
+            # Unpack wheel
+            unzip -q "$f" -d wheel_contents
+            rm "$f"
+
+            # Update WHEEL metadata
+            sed -i "s/Tag: py3-none-any/Tag: py3-none-${{ matrix.platform_tag }}/" wheel_contents/*.dist-info/WHEEL
+
+            # Repack with correct filename
+            newname=$(echo "$f" | sed "s/py3-none-any/py3-none-${{ matrix.platform_tag }}/")
+            cd wheel_contents
+            zip -q -r "../$newname" .
+            cd ..
+            rm -rf wheel_contents
+          done
+          ls -lh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-${{ matrix.arch }}
           path: nixwrap-index/dist/
 
   publish:
@@ -60,11 +83,20 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     steps:
-      - name: Download artifacts
+      - name: Download x86_64 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: dist
+          name: dist-x86_64
           path: dist/
+
+      - name: Download aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-aarch64
+          path: dist/
+
+      - name: List artifacts
+        run: ls -lh dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
