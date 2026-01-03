@@ -29,6 +29,7 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import ssl
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,24 @@ try:
     import compression.zstd as zstd_stdlib  # Python 3.14+
 except ImportError:
     zstd_stdlib = None
+
+# Create a shared SSL context at module load time.
+# Try multiple CA cert locations for compatibility across distributions.
+_ssl_context = None
+for cafile in [
+    "/etc/ssl/cert.pem",           # Fedora, Alpine
+    "/etc/pki/tls/cert.pem",       # RHEL/CentOS
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",  # RHEL alternative
+]:
+    if os.path.exists(cafile):
+        try:
+            _ssl_context = ssl.create_default_context(cafile=cafile)
+            break
+        except Exception:
+            continue
+if _ssl_context is None:
+    _ssl_context = ssl.create_default_context()
 
 try:
     import tomllib  # Python 3.11+
@@ -175,14 +194,14 @@ def _fetch_with_retry(url: str, description: str = "resource") -> bytes:
     for attempt in range(HTTP_MAX_RETRIES):
         try:
             req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip, deflate"})
-            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context) as response:
                 data = response.read()
                 # Handle gzip encoding
                 if response.headers.get("Content-Encoding") == "gzip":
                     import gzip
                     data = gzip.decompress(data)
                 return data
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ssl.SSLError) as e:
             last_error = e
             if attempt < HTTP_MAX_RETRIES - 1:
                 # Exponential backoff with jitter
@@ -192,6 +211,11 @@ def _fetch_with_retry(url: str, description: str = "resource") -> bytes:
                 )
                 print(f"  Retry {attempt + 1}/{HTTP_MAX_RETRIES} for {description} after {delay:.2f}s: {e}", file=sys.stderr)
                 time.sleep(delay)
+        except Exception as e:
+            # Catch any other unexpected errors
+            print(f"  Unexpected error fetching {description}: {type(e).__name__}: {e}", file=sys.stderr)
+            last_error = e
+            break
 
     raise RuntimeError(f"Failed to fetch {description} after {HTTP_MAX_RETRIES} attempts: {last_error}")
 
