@@ -14,6 +14,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -55,6 +56,29 @@ def get_cache_dir() -> Path:
     return base / "nixwrap"
 
 
+def _get_package_cache_path(attr: str) -> Path:
+    """Get path to cached package metadata."""
+    return get_cache_dir() / "packages" / f"{attr}.json"
+
+
+def _load_cached_package(attr: str) -> dict | None:
+    """Load cached package metadata if available."""
+    cache_path = _get_package_cache_path(attr)
+    if cache_path.exists():
+        try:
+            return json.loads(cache_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+    return None
+
+
+def _save_package_cache(attr: str, data: dict) -> None:
+    """Save package metadata to cache."""
+    cache_path = _get_package_cache_path(attr)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(data, indent=2))
+
+
 def run_package(attr: str, args: list[str]) -> int:
     """Run a package by attribute name.
 
@@ -70,51 +94,75 @@ def run_package(attr: str, args: list[str]) -> int:
         _fetch_all_packages,
     )
 
-    # Query the index
-    print(f"Looking up {attr}...", file=sys.stderr)
-    index = _get_index()
-    pkg = index.find_package(attr)
-    if not pkg:
-        print(f"Error: Package '{attr}' not found in nix-index", file=sys.stderr)
-        return 1
+    cache_url = "https://cache.nixos.org"
 
-    # Select primary binary
-    primary_binary = select_primary_binary(pkg.binaries, pkg.name)
-    command = primary_binary.command
-    bin_relpath = primary_binary.path
-
-    # Determine ld-linux path based on system
-    if "aarch64" in pkg.system:
-        ld_linux_relpath = "lib/ld-linux-aarch64.so.1"
-    else:
-        ld_linux_relpath = "lib/ld-linux-x86-64.so.2"
-    ld_linux_name = Path(ld_linux_relpath).name
-
-    # Setup cache
+    # Setup cache directories
     cache_dir = get_cache_dir()
     nix_store = cache_dir / "nix" / "store"
     nix_store.mkdir(parents=True, exist_ok=True)
 
-    cache_url = "https://cache.nixos.org"
+    # Try to load from package cache first
+    cached = _load_cached_package(attr)
 
-    # Check if already cached
-    store_name = Path(pkg.store_path).name
+    if cached:
+        # Use cached metadata
+        store_path = cached["store_path"]
+        command = cached["command"]
+        bin_relpath = cached["bin_relpath"]
+        ld_linux_relpath = cached["ld_linux_relpath"]
+        nar_hash = cached["nar_hash"]
+        closure = cached["closure"]
+    else:
+        # Query the index
+        print(f"Looking up {attr}...", file=sys.stderr)
+        index = _get_index()
+        pkg = index.find_package(attr)
+        if not pkg:
+            print(f"Error: Package '{attr}' not found in nix-index", file=sys.stderr)
+            return 1
+
+        # Select primary binary
+        primary_binary = select_primary_binary(pkg.binaries, pkg.name)
+        command = primary_binary.command
+        bin_relpath = primary_binary.path
+        store_path = pkg.store_path
+
+        # Determine ld-linux path based on system
+        if "aarch64" in pkg.system:
+            ld_linux_relpath = "lib/ld-linux-aarch64.so.1"
+        else:
+            ld_linux_relpath = "lib/ld-linux-x86-64.so.2"
+
+        # Compute closure
+        print(f"Computing closure for {store_path}...", file=sys.stderr)
+        nar_hash, closure = _compute_closure(cache_url, store_path)
+
+        if not nar_hash:
+            print(f"Error: Could not fetch narinfo for {store_path}", file=sys.stderr)
+            return 1
+
+        # Save to cache for next time
+        _save_package_cache(attr, {
+            "store_path": store_path,
+            "command": command,
+            "bin_relpath": bin_relpath,
+            "ld_linux_relpath": ld_linux_relpath,
+            "nar_hash": nar_hash,
+            "closure": closure,
+        })
+
+    ld_linux_name = Path(ld_linux_relpath).name
+
+    # Check if already extracted
+    store_name = Path(store_path).name
     extract_dir = nix_store / store_name
     binary_path = extract_dir / bin_relpath
 
     if not binary_path.exists():
-        # Compute closure
-        print(f"Computing closure for {pkg.store_path}...", file=sys.stderr)
-        nar_hash, closure = _compute_closure(cache_url, pkg.store_path)
-
-        if not nar_hash:
-            print(f"Error: Could not fetch narinfo for {pkg.store_path}", file=sys.stderr)
-            return 1
-
         # Fetch packages
         _fetch_all_packages(
             cache_url=cache_url,
-            store_path=pkg.store_path,
+            store_path=store_path,
             nar_hash=nar_hash,
             closure=closure,
             nix_store=nix_store,
