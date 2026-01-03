@@ -134,20 +134,43 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
         toplevel = match.group(5) == b"true"
         system = match.group(6).decode()
 
-        # Only include toplevel packages with "out" output
-        if not toplevel or output != "out":
+        # Only include toplevel packages with "out" or "bin" output
+        # Some packages (like jq) put binaries in a separate "bin" output
+        if not toplevel or output not in ("out", "bin"):
             continue
 
         # Look backwards from the package metadata to find bin entries
         # The format before package metadata includes file listings
         # We look for "bin\n" followed by executable entries
-        search_start = max(0, match.start() - 2000)  # Look back up to 2KB
+        #
+        # The package metadata format is: \np\x00<len>{...json...}
+        # We include a bit of the metadata area but truncate at the header
+        search_start = max(0, match.start() - 2000)
         context = data[search_start:match.start()]
+
+        # Remove the package header from the end of context
+        # The header is \np\x00<len> where <len> is 1 byte
+        header_pos = context.rfind(b'\np\x00')
+        if header_pos != -1:
+            context = context[:header_pos]
 
         binaries: list[BinaryInfo] = []
 
         # Find the last "bin\n" section before the package metadata
         bin_pos = context.rfind(b"bin\n")
+        if bin_pos != -1:
+            # Find if there's a previous package marker in the search window
+            # If so, we should only look at content after that marker
+            last_pkg_marker = context.rfind(b'\np\x00')
+            if last_pkg_marker != -1 and last_pkg_marker > bin_pos:
+                # The bin section we found belongs to a previous package
+                # Look for another bin section after the marker
+                newer_bin_pos = context[last_pkg_marker:].find(b"bin\n")
+                if newer_bin_pos != -1:
+                    bin_pos = last_pkg_marker + newer_bin_pos
+                else:
+                    bin_pos = -1
+
         if bin_pos != -1:
             # Extract the bin section (from bin\n to end of context)
             bin_section = context[bin_pos:]
@@ -155,6 +178,10 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
             # Find all executable entries (marked with 'x')
             for bin_match in _BIN_ENTRY_PATTERN.finditer(bin_section):
                 bin_name = bin_match.group(1).decode()
+
+                # Skip shared libraries
+                if bin_name.endswith(".so") or ".so." in bin_name:
+                    continue
 
                 is_wrapper = bin_name.startswith(".")
                 if is_wrapper:
