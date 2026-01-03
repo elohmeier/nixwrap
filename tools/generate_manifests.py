@@ -7,9 +7,9 @@ binaries in bin/. Automatically detects Nix wrapper scripts.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import re
-import struct
 import sys
 import tempfile
 import urllib.request
@@ -32,6 +32,14 @@ SKIP_PACKAGES = {
     "python3", "nodejs", "ruby", "perl",  # Interpreters
     "go", "rustc", "cargo",  # Compilers
 }
+
+# Pre-compiled regex patterns for speed
+PKG_PATTERN = re.compile(
+    rb'\{"store_dir":"/nix/store","hash":"([a-z0-9]+)","name":"([^"]+)",'
+    rb'"origin":\{"attr":"([^"]+)","output":"([^"]+)","toplevel":(true|false),'
+    rb'"system":"([^"]+)"\}\}'
+)
+BIN_PATTERN = re.compile(rb'/nix/store/([a-z0-9]{32})-[^/\x00]+/bin/([^\x00/]+)')
 
 
 def download_nix_index(system: str, tmpdir: Path) -> Path:
@@ -64,7 +72,7 @@ def download_nix_index(system: str, tmpdir: Path) -> Path:
 def discover_packages(index_path: Path) -> dict[str, dict]:
     """Parse nix-index database and discover packages with binaries.
 
-    Returns dict of {attr: {store_path, name, system, binaries: [{path, is_wrapper}]}}
+    Optimized version that processes data in chunks and uses hash lookup table.
     """
     with open(index_path, "rb") as f:
         magic = f.read(4)
@@ -75,9 +83,10 @@ def discover_packages(index_path: Path) -> dict[str, dict]:
         dctx = zstandard.ZstdDecompressor()
         reader = dctx.stream_reader(f)
 
+        # Read in chunks to avoid memory issues
         chunks = []
         while True:
-            chunk = reader.read(1024 * 1024)
+            chunk = reader.read(4 * 1024 * 1024)  # 4MB chunks
             if not chunk:
                 break
             chunks.append(chunk)
@@ -85,11 +94,12 @@ def discover_packages(index_path: Path) -> dict[str, dict]:
 
     print(f"Decompressed {len(data) / 1024 / 1024:.1f} MB", file=sys.stderr)
 
-    # Find package metadata
-    packages = {}
-    pkg_pattern = rb'\{"store_dir":"/nix/store","hash":"([a-z0-9]+)","name":"([^"]+)","origin":\{"attr":"([^"]+)","output":"([^"]+)","toplevel":(true|false),"system":"([^"]+)"\}\}'
+    # Pass 1: Build hash -> package info lookup (fast)
+    print("  Finding packages...", file=sys.stderr)
+    hash_to_pkg: dict[str, dict] = {}
+    packages: dict[str, dict] = {}
 
-    for match in re.finditer(pkg_pattern, data):
+    for match in PKG_PATTERN.finditer(data):
         hash_ = match.group(1).decode()
         name = match.group(2).decode()
         attr = match.group(3).decode()
@@ -100,83 +110,76 @@ def discover_packages(index_path: Path) -> dict[str, dict]:
         if not toplevel or output != "out":
             continue
 
-        # Skip known problematic packages
-        base_attr = attr.split(".")[-1]  # Handle python3Packages.foo etc
+        base_attr = attr.split(".")[-1]
         if base_attr in SKIP_PACKAGES:
             continue
 
-        packages[attr] = {
+        pkg_info = {
             "hash": hash_,
             "name": name,
             "system": system,
             "store_path": f"/nix/store/{hash_}-{name}",
             "binaries": [],
         }
+        hash_to_pkg[hash_] = pkg_info
+        packages[attr] = pkg_info
 
-    # Find binary files - look for paths containing /bin/
-    # The format in the database has file paths after package info
-    bin_pattern = rb'/nix/store/([a-z0-9]+)-([^/\x00]+)/bin/([^\x00/]+)'
+    print(f"  Found {len(packages)} toplevel packages", file=sys.stderr)
 
-    for match in re.finditer(bin_pattern, data):
+    # Pass 2: Find binaries using hash lookup (fast)
+    print("  Finding binaries...", file=sys.stderr)
+    for match in BIN_PATTERN.finditer(data):
         hash_ = match.group(1).decode()
-        pkg_name = match.group(2).decode()
-        bin_name = match.group(3).decode()
+        bin_name = match.group(2).decode()
 
-        # Find matching package by hash
-        for attr, pkg in packages.items():
-            if pkg["hash"] == hash_:
-                # Check if this is a wrapper script
-                is_wrapper = bin_name.startswith(".")
-                if is_wrapper:
-                    # .foo-wrapped -> foo is the command
-                    cmd_name = bin_name[1:].replace("-wrapped", "")
-                else:
-                    cmd_name = bin_name
+        pkg = hash_to_pkg.get(hash_)
+        if not pkg:
+            continue
 
-                pkg["binaries"].append({
-                    "path": f"bin/{bin_name}",
-                    "command": cmd_name,
-                    "is_wrapper": is_wrapper,
-                })
-                break
+        is_wrapper = bin_name.startswith(".")
+        if is_wrapper:
+            cmd_name = bin_name[1:].replace("-wrapped", "")
+        else:
+            cmd_name = bin_name
 
-    # Filter to packages with at least one binary
+        pkg["binaries"].append({
+            "path": f"bin/{bin_name}",
+            "command": cmd_name,
+            "is_wrapper": is_wrapper,
+        })
+
+    # Filter to packages with binaries
     packages = {k: v for k, v in packages.items() if v["binaries"]}
+    print(f"  {len(packages)} packages have binaries", file=sys.stderr)
 
-    print(f"Found {len(packages)} packages with binaries", file=sys.stderr)
     return packages
 
 
 def select_primary_binary(pkg: dict) -> tuple[str, str] | None:
-    """Select the primary binary for a package.
-
-    Prefers wrapper scripts, then matches package name, then first binary.
-    Returns (bin_path, command_name) or None.
-    """
+    """Select the primary binary for a package."""
     binaries = pkg["binaries"]
     if not binaries:
         return None
 
-    # Extract base package name (e.g., "ripgrep-14.1.0" -> "ripgrep")
     pkg_name = pkg["name"]
     base_name = re.sub(r"-\d+.*$", "", pkg_name)
 
-    # First: prefer wrapper that matches package name
+    # Prefer wrapper that matches package name
     for b in binaries:
         if b["is_wrapper"] and b["command"] == base_name:
             return b["path"], b["command"]
 
-    # Second: prefer non-wrapper that matches package name
+    # Non-wrapper matching package name
     for b in binaries:
         if not b["is_wrapper"] and b["command"] == base_name:
             return b["path"], b["command"]
 
-    # Third: any wrapper
+    # Any wrapper
     for b in binaries:
         if b["is_wrapper"]:
             return b["path"], b["command"]
 
-    # Fourth: any binary (prefer shorter names, likely the main command)
+    # Shortest name (likely main command)
     binaries_sorted = sorted(binaries, key=lambda x: len(x["command"]))
     return binaries_sorted[0]["path"], binaries_sorted[0]["command"]
 
@@ -187,9 +190,9 @@ def fetch_narinfo(store_path: str) -> dict[str, str]:
     url = f"{NIX_CACHE_URL}/{store_hash}.narinfo"
 
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
+        with urllib.request.urlopen(url, timeout=10) as resp:
             text = resp.read().decode()
-    except urllib.error.HTTPError:
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
         return {}
 
     result = {}
@@ -200,49 +203,61 @@ def fetch_narinfo(store_path: str) -> dict[str, str]:
     return result
 
 
-def get_closure(store_path: str) -> list[dict]:
-    """Get full transitive closure for a store path."""
-    seen = set()
-    closure = []
+def get_closure_parallel(store_path: str, max_workers: int = 16) -> list[dict]:
+    """Get transitive closure using parallel fetches."""
+    seen: set[str] = set()
+    closure: list[dict] = []
     queue = [store_path]
     main_name = Path(store_path).name
 
     while queue:
-        current = queue.pop(0)
-        current_name = Path(current).name
+        # Fetch all current queue items in parallel
+        batch = []
+        while queue and len(batch) < max_workers * 2:
+            path = queue.pop(0)
+            name = Path(path).name
+            if name not in seen:
+                seen.add(name)
+                batch.append(path)
 
-        if current_name in seen:
-            continue
-        seen.add(current_name)
+        if not batch:
+            break
 
-        narinfo = fetch_narinfo(current)
-        if not narinfo:
-            continue
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fetch_narinfo, p): p for p in batch}
+            for future in concurrent.futures.as_completed(futures):
+                path = futures[future]
+                name = Path(path).name
+                try:
+                    narinfo = future.result()
+                except Exception:
+                    continue
 
-        if current_name != main_name:
-            closure.append({
-                "store_path": current,
-                "nar_hash": narinfo.get("NarHash", ""),
-            })
+                if not narinfo:
+                    continue
 
-        refs = narinfo.get("References", "").split()
-        for ref in refs:
-            if ref not in seen:
-                queue.append(f"/nix/store/{ref}")
+                if name != main_name:
+                    closure.append({
+                        "store_path": path,
+                        "nar_hash": narinfo.get("NarHash", ""),
+                    })
+
+                refs = narinfo.get("References", "").split()
+                for ref in refs:
+                    if ref not in seen:
+                        queue.append(f"/nix/store/{ref}")
 
     return closure
 
 
 def make_dist_name(attr: str, command: str) -> str:
     """Generate a PyPI-compatible distribution name."""
-    # Use the command name, but handle conflicts
-    # e.g., fd -> fd-find (conflicts with existing fd package)
     known_renames = {
         "fd": "fd-find",
         "delta": "git-delta",
         "yq-go": "yq",
     }
-    base = attr.split(".")[-1]  # Handle python3Packages.foo
+    base = attr.split(".")[-1]
     return known_renames.get(base, command)
 
 
@@ -263,12 +278,11 @@ def generate_manifest(attr: str, pkg: dict) -> dict | None:
     if not nar_hash:
         return None
 
-    # Extract version
     name = pkg["name"]
     version_match = re.search(r"-(\d+\.\d+[.\d]*)", name)
     version = version_match.group(1) if version_match else "0.0.0"
 
-    closure = get_closure(store_path)
+    closure = get_closure_parallel(store_path)
 
     system = pkg.get("system", "x86_64-linux")
     if "aarch64" in system:
@@ -293,10 +307,36 @@ def generate_manifest(attr: str, pkg: dict) -> dict | None:
     }
 
 
+def generate_manifests_parallel(
+    packages: dict[str, dict],
+    attrs: list[str],
+    max_workers: int = 8,
+) -> dict[str, dict]:
+    """Generate manifests for multiple packages in parallel."""
+    results = {}
+
+    def process_pkg(attr: str) -> tuple[str, dict | None]:
+        pkg = packages[attr]
+        manifest = generate_manifest(attr, pkg)
+        return attr, manifest
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_pkg, attr): attr for attr in attrs}
+        done = 0
+        for future in concurrent.futures.as_completed(futures):
+            done += 1
+            attr, manifest = future.result()
+            if manifest:
+                results[attr] = manifest
+            print(f"  [{done}/{len(attrs)}] {attr}", file=sys.stderr)
+
+    return results
+
+
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Auto-discover and generate manifests from nix-index-database")
+    parser = argparse.ArgumentParser(description="Auto-discover and generate manifests")
     parser.add_argument(
         "--systems",
         nargs="+",
@@ -308,6 +348,12 @@ def main():
         type=int,
         default=50,
         help="Limit number of packages (0 for unlimited)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Number of parallel workers for manifest generation",
     )
     args = parser.parse_args()
 
@@ -322,22 +368,17 @@ def main():
             index_path = download_nix_index(system, tmpdir_path)
             packages = discover_packages(index_path)
 
-            # Sort by package name for consistent ordering
             sorted_attrs = sorted(packages.keys())
             if args.limit > 0:
                 sorted_attrs = sorted_attrs[:args.limit]
 
-            print(f"Processing {len(sorted_attrs)} packages...", file=sys.stderr)
+            print(f"Generating manifests for {len(sorted_attrs)} packages...", file=sys.stderr)
 
-            for attr in sorted_attrs:
-                pkg = packages[attr]
-                print(f"  {attr}...", file=sys.stderr)
-
-                manifest = generate_manifest(attr, pkg)
-                if manifest:
-                    if attr not in all_manifests:
-                        all_manifests[attr] = {}
-                    all_manifests[attr][system] = manifest
+            manifests = generate_manifests_parallel(packages, sorted_attrs, args.workers)
+            for attr, manifest in manifests.items():
+                if attr not in all_manifests:
+                    all_manifests[attr] = {}
+                all_manifests[attr][system] = manifest
 
     print(f"\nGenerated manifests for {len(all_manifests)} packages", file=sys.stderr)
     print(json.dumps(all_manifests, indent=2))

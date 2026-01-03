@@ -48,7 +48,7 @@ jobs:
 
       - name: Generate manifests and build sdists
         run: |
-          python tools/generate_manifests.py | python tools/build_index.py --out gh-pages
+          python tools/generate_manifests.py --workers 16 | python tools/build_index.py --out gh-pages
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
