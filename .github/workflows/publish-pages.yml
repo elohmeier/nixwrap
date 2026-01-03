@@ -50,7 +50,7 @@ jobs:
             https://github.com/nix-community/nix-index-database/releases/latest/download/index-aarch64-linux
           ls -lh nixwrap-index/src/nixwrap_index/data/
 
-      - name: Build nixwrap-core wheel
+      - name: Build nixwrap wheel
         run: python -m build --wheel --outdir gh-pages/packages/
 
       - name: Build nixwrap-index wheel
@@ -58,7 +58,7 @@ jobs:
 
       - name: Install packages for stub generation
         run: |
-          pip install gh-pages/packages/nixwrap_core-*.whl
+          pip install gh-pages/packages/nixwrap-*.whl
           pip install gh-pages/packages/nixwrap_index-*.whl
 
       - name: Generate stub sdists and PEP 503 index

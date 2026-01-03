@@ -810,7 +810,7 @@ Summary: {manifest.get('description', f'nixwrap package for {command}')}
 
             # WHEEL
             wheel_metadata = f"""Wheel-Version: 1.0
-Generator: nixwrap-core
+Generator: nixwrap
 Root-Is-Purelib: false
 Tag: py3-none-{platform_tag}
 """
@@ -870,8 +870,8 @@ def build_sdist(
 
         # Add pyproject.toml
         pyproject = f"""[build-system]
-requires = ["nixwrap-core"]
-build-backend = "nixwrap_core.backend"
+requires = ["nixwrap"]
+build-backend = "nixwrap.backend"
 
 [project]
 name = "{dist_name}"

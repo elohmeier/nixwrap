@@ -16,10 +16,10 @@ import sys
 import tarfile
 from pathlib import Path
 
-# Add parent directory to path for importing nixwrap_core
+# Add parent directory to path for importing nixwrap
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from nixwrap_core.index import NixIndex, select_primary_binary
+from nixwrap.index import NixIndex, select_primary_binary
 
 
 def normalize_name(name: str) -> str:
@@ -56,8 +56,8 @@ def generate_stub_sdist(
 
     # Create pyproject.toml content
     pyproject = f'''[build-system]
-requires = ["nixwrap-core>=0.3", "nixwrap-index"]
-build-backend = "nixwrap_core.backend"
+requires = ["nixwrap>=0.4", "nixwrap-index"]
+build-backend = "nixwrap.backend"
 
 [project]
 name = "{dist_name}"

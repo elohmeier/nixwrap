@@ -3,26 +3,30 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nixwrap-core"
-version = "0.3.0"
-description = "Shared build backend for nixwrap packages"
+name = "nixwrap"
+version = "0.4.0"
+description = "Run Nix packages from Python without Nix installed"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.14"
-dependencies = []  # Zero external dependencies - uses stdlib only (Python 3.14+)
+dependencies = []  # Zero external dependencies for build backend
 
 [project.optional-dependencies]
+cli = ["nixwrap-index"]  # Required for CLI usage
 dev = [
     "build>=1.0",
     "pytest>=8.0",
 ]
 
+[project.scripts]
+nixwrap = "nixwrap.cli:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/nixwrap_core"]
+packages = ["src/nixwrap"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/nixwrap_core",
+    "src/nixwrap",
     "README.md",
     "pyproject.toml",
 ]
