@@ -31,8 +31,14 @@ uvx nixwrap bat README.md
 ### Python Package Index
 
 ```bash
-# Install a tool from the nixwrap index
-uv tool install --index-url https://elohmeier.github.io/nixwrap/ ripgrep
+# One-off execution with uvx
+uvx --index-url https://elohmeier.github.io/nixwrap fd --version
+
+# Or via pipx
+uvx --with pip pipx run --index-url https://elohmeier.github.io/nixwrap fd --version
+
+# Install a tool permanently
+uv tool install --index-url https://elohmeier.github.io/nixwrap ripgrep
 
 # Use the tool
 rg --version
