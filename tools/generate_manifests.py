@@ -25,13 +25,22 @@ NIX_CACHE_URL = "https://cache.nixos.org"
 
 # Packages to skip (known problematic or not useful as standalone CLI tools)
 SKIP_PACKAGES = {
-    "coreutils", "busybox", "toybox",  # Too many commands, conflicts
-    "util-linux",  # System utilities
-    "glibc", "gcc", "binutils",  # Build tools
-    "bash", "zsh", "fish",  # Shells (complex setup)
-    "python3", "nodejs", "ruby", "perl",  # Interpreters
-    "go", "rustc", "cargo",  # Compilers
+    # Multi-binary packages that conflict
+    "coreutils", "busybox", "toybox", "util-linux", "inetutils",
+    # Build tools
+    "glibc", "gcc", "binutils", "gnumake", "cmake", "meson", "ninja",
+    # Shells
+    "bash", "zsh", "fish", "dash", "tcsh", "ksh",
+    # Interpreters/runtimes
+    "python3", "python", "nodejs", "node", "ruby", "perl", "lua",
+    # Compilers
+    "go", "rustc", "cargo", "ghc", "ocaml",
+    # System services
+    "systemd", "dbus", "polkit", "udev",
 }
+
+# Binary names to skip (even if package is allowed)
+SKIP_BINARIES = {"sh", "bash", "zsh", "fish", "python", "python3", "node", "perl", "ruby"}
 
 # Pre-compiled regex patterns for speed
 PKG_PATTERN = re.compile(
@@ -39,7 +48,8 @@ PKG_PATTERN = re.compile(
     rb'"origin":\{"attr":"([^"]+)","output":"([^"]+)","toplevel":(true|false),'
     rb'"system":"([^"]+)"\}\}'
 )
-BIN_PATTERN = re.compile(rb'/nix/store/([a-z0-9]{32})-[^/\x00]+/bin/([^\x00/]+)')
+# Binary names: match alphanumeric, dash, underscore, dot but stop before trailing 's' + null (format metadata)
+BIN_PATTERN = re.compile(rb'/nix/store/([a-z0-9]{32})-[^/\x00]+/bin/(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*?)(?=s?\x00)')
 
 
 def download_nix_index(system: str, tmpdir: Path) -> Path:
@@ -141,6 +151,10 @@ def discover_packages(index_path: Path) -> dict[str, dict]:
             cmd_name = bin_name[1:].replace("-wrapped", "")
         else:
             cmd_name = bin_name
+
+        # Skip problematic binaries
+        if cmd_name in SKIP_BINARIES:
+            continue
 
         pkg["binaries"].append({
             "path": f"bin/{bin_name}",
