@@ -45,10 +45,20 @@ _PKG_PATTERN = re.compile(
     rb'"origin":\{"attr":"([^"]+)","output":"([^"]+)","toplevel":(true|false),'
     rb'"system":"([^"]+)"\}\}'
 )
-# Binary names: match alphanumeric, dash, underscore, dot
-# Stop before trailing 's' + null (format metadata)
-_BIN_PATTERN = re.compile(
-    rb'/nix/store/([a-z0-9]{32})-[^/\x00]+/bin/(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*?)(?=s?\x00)'
+
+# Pattern for relative binary entries that appear before package metadata
+# Format: bin\n followed by entries like 6572488x\x00\x03/rg
+# The 'x' indicates executable, the byte after \x00 is string length metadata
+_REL_BIN_PATTERN = re.compile(
+    rb'bin\n(?:.*?(\d+)x\x00./(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*)\n?)*',
+    re.DOTALL
+)
+
+# Pattern for individual binary entries within a bin section
+# Format: <SIZE>x\x00<META>/? <BINARY_NAME>
+# Some entries have / prefix, some don't (e.g., .bat-wrapped)
+_BIN_ENTRY_PATTERN = re.compile(
+    rb'\d+x\x00./?(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*)'
 )
 
 
@@ -93,6 +103,11 @@ def detect_system() -> str:
 def _parse_index(path: Path) -> dict[str, PackageInfo]:
     """Parse a nix-index database file.
 
+    The nix-index format stores file listings followed by package metadata.
+    For each package, binaries appear in the format:
+        bin\n<SIZE>x\x00<LEN>/<BINARY_NAME>
+    followed by the package JSON metadata.
+
     Args:
         path: Path to the index file
 
@@ -108,10 +123,9 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
         # Decompress using zstd streaming
         data = decompress_zstd_stream(f)
 
-    # Pass 1: Build hash -> package info lookup
-    hash_to_pkg: dict[str, PackageInfo] = {}
     packages: dict[str, PackageInfo] = {}
 
+    # Find all package metadata entries and look backwards for binaries
     for match in _PKG_PATTERN.finditer(data):
         hash_ = match.group(1).decode()
         name = match.group(2).decode()
@@ -124,42 +138,51 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
         if not toplevel or output != "out":
             continue
 
-        pkg = PackageInfo(
-            attr=attr,
-            name=name,
-            store_hash=hash_,
-            store_path=f"/nix/store/{hash_}-{name}",
-            system=system,
-            binaries=[],
-        )
-        hash_to_pkg[hash_] = pkg
-        packages[attr] = pkg
+        # Look backwards from the package metadata to find bin entries
+        # The format before package metadata includes file listings
+        # We look for "bin\n" followed by executable entries
+        search_start = max(0, match.start() - 2000)  # Look back up to 2KB
+        context = data[search_start:match.start()]
 
-    # Pass 2: Find binaries using hash lookup
-    for match in _BIN_PATTERN.finditer(data):
-        hash_ = match.group(1).decode()
-        bin_name = match.group(2).decode()
+        binaries: list[BinaryInfo] = []
 
-        pkg = hash_to_pkg.get(hash_)
-        if not pkg:
-            continue
+        # Find the last "bin\n" section before the package metadata
+        bin_pos = context.rfind(b"bin\n")
+        if bin_pos != -1:
+            # Extract the bin section (from bin\n to end of context)
+            bin_section = context[bin_pos:]
 
-        is_wrapper = bin_name.startswith(".")
-        if is_wrapper:
-            cmd_name = bin_name[1:].replace("-wrapped", "")
-        else:
-            cmd_name = bin_name
+            # Find all executable entries (marked with 'x')
+            for bin_match in _BIN_ENTRY_PATTERN.finditer(bin_section):
+                bin_name = bin_match.group(1).decode()
 
-        pkg.binaries.append(
-            BinaryInfo(
-                path=f"bin/{bin_name}",
-                command=cmd_name,
-                is_wrapper=is_wrapper,
+                is_wrapper = bin_name.startswith(".")
+                if is_wrapper:
+                    cmd_name = bin_name[1:].replace("-wrapped", "")
+                else:
+                    cmd_name = bin_name
+
+                binaries.append(
+                    BinaryInfo(
+                        path=f"bin/{bin_name}",
+                        command=cmd_name,
+                        is_wrapper=is_wrapper,
+                    )
+                )
+
+        # Only add packages that have binaries
+        if binaries:
+            pkg = PackageInfo(
+                attr=attr,
+                name=name,
+                store_hash=hash_,
+                store_path=f"/nix/store/{hash_}-{name}",
+                system=system,
+                binaries=binaries,
             )
-        )
+            packages[attr] = pkg
 
-    # Filter to packages with binaries
-    return {k: v for k, v in packages.items() if v.binaries}
+    return packages
 
 
 class NixIndex:
