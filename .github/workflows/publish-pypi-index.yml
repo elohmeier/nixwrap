@@ -57,7 +57,7 @@ jobs:
           cd dist
           for f in *.whl; do
             # Unpack wheel
-            unzip -q "$f" -d wheel_contents
+            unzip -q -o "$f" -d wheel_contents
             rm "$f"
 
             # Update WHEEL metadata
