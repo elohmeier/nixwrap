@@ -21,8 +21,8 @@ pip install nixwrap
 
 # Run any nixpkgs package directly
 nixwrap ripgrep --version
-nixwrap neovim-unwrapped --version
 nixwrap jq --help
+nixwrap fd --version
 
 # Or use uvx for one-off execution
 uvx nixwrap bat README.md
@@ -116,8 +116,14 @@ uv build
 
 ## Limitations
 
-- **Wrapper scripts**: Packages that use shell wrapper scripts (like `neovim`) won't work because they have hardcoded paths in bash scripts. Use the `-unwrapped` variant instead (e.g., `neovim-unwrapped`).
+- **Hardcoded runtime paths**: Some packages have `/nix/store/...` paths compiled into the binary for runtime files (config, data, plugins). These paths can't be patched with patchelf. Examples:
+  - `neovim-unwrapped`: Works for `--version` but fails at runtime because it can't find Lua modules and syntax files at the hardcoded paths.
+  - Simple CLI tools like `ripgrep`, `fd`, `jq`, `bat` work fine since they don't depend on external runtime files.
+
+- **Wrapper scripts**: Packages that use shell wrapper scripts (like `neovim`, `python`) won't work because they have hardcoded paths in bash scripts, not ELF binaries.
+
 - **Linux only**: Currently only supports Linux (x86_64 and aarch64).
+
 - **Python 3.14+**: Requires Python 3.14 for the stdlib zstd module.
 
 ## License
