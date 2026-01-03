@@ -23,25 +23,6 @@ except ImportError:
 
 NIX_CACHE_URL = "https://cache.nixos.org"
 
-# Packages to skip (known problematic or not useful as standalone CLI tools)
-SKIP_PACKAGES = {
-    # Multi-binary packages that conflict
-    "coreutils", "busybox", "toybox", "util-linux", "inetutils",
-    # Build tools
-    "glibc", "gcc", "binutils", "gnumake", "cmake", "meson", "ninja",
-    # Shells
-    "bash", "zsh", "fish", "dash", "tcsh", "ksh",
-    # Interpreters/runtimes
-    "python3", "python", "nodejs", "node", "ruby", "perl", "lua",
-    # Compilers
-    "go", "rustc", "cargo", "ghc", "ocaml",
-    # System services
-    "systemd", "dbus", "polkit", "udev",
-}
-
-# Binary names to skip (even if package is allowed)
-SKIP_BINARIES = {"sh", "bash", "zsh", "fish", "python", "python3", "node", "perl", "ruby"}
-
 # Pre-compiled regex patterns for speed
 PKG_PATTERN = re.compile(
     rb'\{"store_dir":"/nix/store","hash":"([a-z0-9]+)","name":"([^"]+)",'
@@ -120,10 +101,6 @@ def discover_packages(index_path: Path) -> dict[str, dict]:
         if not toplevel or output != "out":
             continue
 
-        base_attr = attr.split(".")[-1]
-        if base_attr in SKIP_PACKAGES:
-            continue
-
         pkg_info = {
             "hash": hash_,
             "name": name,
@@ -151,10 +128,6 @@ def discover_packages(index_path: Path) -> dict[str, dict]:
             cmd_name = bin_name[1:].replace("-wrapped", "")
         else:
             cmd_name = bin_name
-
-        # Skip problematic binaries
-        if cmd_name in SKIP_BINARIES:
-            continue
 
         pkg["binaries"].append({
             "path": f"bin/{bin_name}",
