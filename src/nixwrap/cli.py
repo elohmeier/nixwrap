@@ -273,7 +273,11 @@ def main() -> int:
             return 1
 
         if first_arg == "run":
-            return run_package(args.package, args.args)
+            # Strip leading '--' separator if present
+            run_args = args.args
+            if run_args and run_args[0] == "--":
+                run_args = run_args[1:]
+            return run_package(args.package, run_args)
         elif first_arg == "info":
             return show_info(args.package)
     elif first_arg in ("-h", "--help"):
@@ -281,7 +285,11 @@ def main() -> int:
         return 0
     else:
         # Direct package mode: nixwrap <package> [args...]
-        return run_package(first_arg, sys.argv[2:])
+        # Strip leading '--' separator if present
+        pkg_args = sys.argv[2:]
+        if pkg_args and pkg_args[0] == "--":
+            pkg_args = pkg_args[1:]
+        return run_package(first_arg, pkg_args)
 
     return 0
 
