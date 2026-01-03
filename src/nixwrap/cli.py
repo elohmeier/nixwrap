@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from .index import NixIndex, detect_system, select_primary_binary
+from .patcher import collect_library_paths, find_absolute_store_paths, patch_binary
 
 
 def _get_index() -> NixIndex:
@@ -187,13 +188,37 @@ def run_package(attr: str, args: list[str]) -> int:
         print(f"Error: ld-linux not found", file=sys.stderr)
         return 1
 
-    # Collect library paths
-    lib_paths = []
-    for item in nix_store.iterdir():
-        lib_dir = item / "lib"
-        if lib_dir.exists():
-            lib_paths.append(str(lib_dir))
+    # Check for absolute /nix/store paths in NEEDED entries
+    abs_paths = find_absolute_store_paths(binary_path)
+    if abs_paths:
+        print(f"Found {len(abs_paths)} absolute store path(s), patching...", file=sys.stderr)
 
+        # Ensure patchelf is available
+        patchelf_in_store = any("patchelf" in item.name for item in nix_store.iterdir())
+        if not patchelf_in_store:
+            print(f"Fetching patchelf...", file=sys.stderr)
+            # Query index for patchelf
+            patchelf_pkg = index.find_package("patchelf") if 'index' in dir() else None
+            if not patchelf_pkg:
+                tmp_index = _get_index()
+                patchelf_pkg = tmp_index.find_package("patchelf")
+
+            if patchelf_pkg:
+                patchelf_nar_hash, patchelf_closure = _compute_closure(cache_url, patchelf_pkg.store_path)
+                _fetch_all_packages(
+                    cache_url=cache_url,
+                    store_path=patchelf_pkg.store_path,
+                    nar_hash=patchelf_nar_hash,
+                    closure=patchelf_closure,
+                    nix_store=nix_store,
+                )
+
+        # Patch the binary
+        if not patch_binary(binary_path, abs_paths, nix_store, ld_linux_path):
+            print(f"Warning: Failed to patch some absolute paths", file=sys.stderr)
+
+    # Collect library paths (including subdirectories for lua modules etc.)
+    lib_paths = collect_library_paths(nix_store)
     library_path = ":".join(lib_paths)
 
     # Execute

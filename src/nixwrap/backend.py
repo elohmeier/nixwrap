@@ -713,6 +713,34 @@ def build_wheel(
         if not ld_linux_path:
             raise FileNotFoundError(f"ld-linux not found at {ld_linux_relpath}")
 
+        # Check for absolute /nix/store paths in NEEDED entries and patch if needed
+        from .patcher import find_absolute_store_paths, patch_binary
+
+        abs_paths = find_absolute_store_paths(binary_path)
+        if abs_paths:
+            print(f"  Found {len(abs_paths)} absolute store path(s), patching...", file=sys.stderr)
+
+            # Ensure patchelf is available
+            patchelf_in_store = any("patchelf" in item.name for item in nix_store.iterdir())
+            if not patchelf_in_store:
+                print(f"  Fetching patchelf...", file=sys.stderr)
+                from .index import NixIndex
+                tmp_index = NixIndex()
+                patchelf_pkg = tmp_index.find_package("patchelf")
+                if patchelf_pkg:
+                    patchelf_nar_hash, patchelf_closure = _compute_closure(cache_url, patchelf_pkg.store_path)
+                    _fetch_all_packages(
+                        cache_url=cache_url,
+                        store_path=patchelf_pkg.store_path,
+                        nar_hash=patchelf_nar_hash,
+                        closure=patchelf_closure,
+                        nix_store=nix_store,
+                    )
+
+            # Patch the binary
+            if not patch_binary(binary_path, abs_paths, nix_store, ld_linux_path):
+                print(f"  Warning: Failed to patch some absolute paths", file=sys.stderr)
+
         # Build the wheel
         wheel_name = f"{normalized_name}-{version}-py3-none-{platform_tag}.whl"
         wheel_path = wheel_dir / wheel_name
@@ -805,13 +833,15 @@ if __name__ == "__main__":
             info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
             whl.writestr(info, ld_linux_path.read_bytes())
 
-            # Collect all .so files from lib/ directories (only real files)
+            # Collect all .so files from lib/ directories including subdirectories
+            # (e.g., lib/lua/5.1/lpeg.so)
             seen_libs = {ld_linux_name}  # Already added above
             for store_item in nix_store.iterdir():
                 lib_dir = store_item / "lib"
                 if not lib_dir.exists():
                     continue
-                for so_file in lib_dir.glob("*.so*"):
+                # Use rglob to find .so files in subdirectories too
+                for so_file in lib_dir.rglob("*.so*"):
                     if so_file.is_symlink():
                         continue  # Skip symlinks
                     if not so_file.is_file():
@@ -824,6 +854,7 @@ if __name__ == "__main__":
                         continue
                     seen_libs.add(name)
 
+                    # Put all libs in flat lib/ directory (patched binary uses just lib name)
                     arc_path = f"{module_name}/lib/{name}"
                     info = zipfile.ZipInfo(arc_path)
                     info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
