@@ -1,0 +1,70 @@
+name: Publish nixwrap-index to PyPI
+
+on:
+  schedule:
+    # Run weekly on Sunday at 01:00 UTC (after publish-pages)
+    - cron: "0 1 * * 0"
+  push:
+    tags:
+      - "index-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          allow-prereleases: true
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Download nix-index databases
+        run: |
+          mkdir -p nixwrap-index/src/nixwrap_index/data
+          echo "Downloading x86_64-linux index..."
+          curl -L -o nixwrap-index/src/nixwrap_index/data/index-x86_64-linux \
+            https://github.com/nix-community/nix-index-database/releases/latest/download/index-x86_64-linux
+          echo "Downloading aarch64-linux index..."
+          curl -L -o nixwrap-index/src/nixwrap_index/data/index-aarch64-linux \
+            https://github.com/nix-community/nix-index-database/releases/latest/download/index-aarch64-linux
+          ls -lh nixwrap-index/src/nixwrap_index/data/
+
+      - name: Set version from date
+        run: |
+          VERSION=$(date +%Y.%-m.%-d)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          sed -i "s/version = \".*\"/version = \"$VERSION\"/" nixwrap-index/pyproject.toml
+          cat nixwrap-index/pyproject.toml
+
+      - name: Build package
+        run: python -m build nixwrap-index/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: nixwrap-index/dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
