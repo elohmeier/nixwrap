@@ -331,12 +331,6 @@ def main():
         help="Systems to generate manifests for",
     )
     parser.add_argument(
-        "--limit",
-        type=int,
-        default=50,
-        help="Limit number of packages (0 for unlimited)",
-    )
-    parser.add_argument(
         "--workers",
         type=int,
         default=8,
@@ -356,9 +350,6 @@ def main():
             packages = discover_packages(index_path)
 
             sorted_attrs = sorted(packages.keys())
-            if args.limit > 0:
-                sorted_attrs = sorted_attrs[:args.limit]
-
             print(f"Generating manifests for {len(sorted_attrs)} packages...", file=sys.stderr)
 
             manifests = generate_manifests_parallel(packages, sorted_attrs, args.workers)
