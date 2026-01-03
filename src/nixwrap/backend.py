@@ -43,8 +43,8 @@ except ImportError:
 # Try multiple CA cert locations for compatibility across distributions.
 _ssl_context = None
 for cafile in [
-    "/etc/ssl/cert.pem",           # Fedora, Alpine
-    "/etc/pki/tls/cert.pem",       # RHEL/CentOS
+    "/etc/ssl/cert.pem",  # Fedora, Alpine
+    "/etc/pki/tls/cert.pem",  # RHEL/CentOS
     "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu
     "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",  # RHEL alternative
 ]:
@@ -94,7 +94,7 @@ def _nix32_decode(s: str) -> bytes:
         b = n * 5
         i = b // 8
         j = b % 8
-        result[i] |= (c << j) & 0xff
+        result[i] |= (c << j) & 0xFF
         if i + 1 < hash_size:
             result[i + 1] |= c >> (8 - j)
 
@@ -193,31 +193,49 @@ def _fetch_with_retry(url: str, description: str = "resource") -> bytes:
 
     for attempt in range(HTTP_MAX_RETRIES):
         try:
-            req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip, deflate"})
-            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context) as response:
+            req = urllib.request.Request(
+                url, headers={"Accept-Encoding": "gzip, deflate"}
+            )
+            with urllib.request.urlopen(
+                req, timeout=HTTP_TIMEOUT, context=_ssl_context
+            ) as response:
                 data = response.read()
                 # Handle gzip encoding
                 if response.headers.get("Content-Encoding") == "gzip":
                     import gzip
+
                     data = gzip.decompress(data)
                 return data
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ssl.SSLError) as e:
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            ssl.SSLError,
+        ) as e:
             last_error = e
             if attempt < HTTP_MAX_RETRIES - 1:
                 # Exponential backoff with jitter
                 delay = min(
                     HTTP_MAX_RETRY_DELAY,
-                    HTTP_BASE_RETRY_DELAY * (2 ** attempt) + random.uniform(0, 0.1),
+                    HTTP_BASE_RETRY_DELAY * (2**attempt) + random.uniform(0, 0.1),
                 )
-                print(f"  Retry {attempt + 1}/{HTTP_MAX_RETRIES} for {description} after {delay:.2f}s: {e}", file=sys.stderr)
+                print(
+                    f"  Retry {attempt + 1}/{HTTP_MAX_RETRIES} for {description} after {delay:.2f}s: {e}",
+                    file=sys.stderr,
+                )
                 time.sleep(delay)
         except Exception as e:
             # Catch any other unexpected errors
-            print(f"  Unexpected error fetching {description}: {type(e).__name__}: {e}", file=sys.stderr)
+            print(
+                f"  Unexpected error fetching {description}: {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
             last_error = e
             break
 
-    raise RuntimeError(f"Failed to fetch {description} after {HTTP_MAX_RETRIES} attempts: {last_error}")
+    raise RuntimeError(
+        f"Failed to fetch {description} after {HTTP_MAX_RETRIES} attempts: {last_error}"
+    )
 
 
 def _fetch_narinfo(cache_url: str, store_path: str) -> dict[str, str]:
@@ -235,7 +253,9 @@ def _fetch_narinfo(cache_url: str, store_path: str) -> dict[str, str]:
     return result
 
 
-def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) -> bytes:
+def _fetch_nar(
+    cache_url: str, nar_path: str, expected_hash: str | None = None
+) -> bytes:
     """Fetch and decompress NAR from cache."""
     nar_url = f"{cache_url}/{nar_path}"
 
@@ -251,7 +271,9 @@ def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) 
             try:
                 import zstandard
             except ImportError:
-                raise ImportError("zstandard package or Python 3.14+ required for .zst NAR files")
+                raise ImportError(
+                    "zstandard package or Python 3.14+ required for .zst NAR files"
+                )
             dctx = zstandard.ZstdDecompressor()
             nar_data = dctx.decompress(compressed_data)
     else:
@@ -259,7 +281,11 @@ def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) 
 
     # Verify hash if provided
     if expected_hash:
-        algo, expected = expected_hash.split(":", 1) if ":" in expected_hash else ("sha256", expected_hash)
+        algo, expected = (
+            expected_hash.split(":", 1)
+            if ":" in expected_hash
+            else ("sha256", expected_hash)
+        )
         if algo == "sha256":
             actual_bytes = hashlib.sha256(nar_data).digest()
             # Determine format of expected hash and compare
@@ -270,7 +296,9 @@ def _fetch_nar(cache_url: str, nar_path: str, expected_hash: str | None = None) 
             else:  # assume base64
                 expected_bytes = base64.b64decode(expected)
             if actual_bytes != expected_bytes:
-                raise ValueError(f"NAR hash mismatch: expected {expected_bytes.hex()}, got {actual_bytes.hex()}")
+                raise ValueError(
+                    f"NAR hash mismatch: expected {expected_bytes.hex()}, got {actual_bytes.hex()}"
+                )
 
     return nar_data
 
@@ -294,7 +322,12 @@ def _fetch_file_listing(cache_url: str, store_path: str) -> dict[str, Any] | Non
                 # Decode with surrogateescape to handle non-UTF8 filenames
                 text = data.decode("utf-8", errors="surrogateescape")
                 return json.loads(text)
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, lzma.LZMAError):
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            json.JSONDecodeError,
+            lzma.LZMAError,
+        ):
             continue
 
     return None
@@ -358,7 +391,7 @@ def _fetch_all_packages(
                         )
                 else:
                     break
-            print(f"  Pre-flight validation passed", file=sys.stderr)
+            print("  Pre-flight validation passed", file=sys.stderr)
 
     # Build list of all packages to fetch
     packages = [(store_path, nar_hash)]
@@ -373,7 +406,9 @@ def _fetch_all_packages(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         future_to_pkg = {
-            executor.submit(_fetch_package, cache_url, pkg_path, pkg_hash, nix_store): pkg_path
+            executor.submit(
+                _fetch_package, cache_url, pkg_path, pkg_hash, nix_store
+            ): pkg_path
             for pkg_path, pkg_hash in packages
         }
 
@@ -532,7 +567,10 @@ def _compute_closure(
                 try:
                     narinfo = future.result()
                 except Exception as e:
-                    print(f"  Warning: Failed to fetch narinfo for {name}: {e}", file=sys.stderr)
+                    print(
+                        f"  Warning: Failed to fetch narinfo for {name}: {e}",
+                        file=sys.stderr,
+                    )
                     continue
 
                 if not narinfo:
@@ -544,10 +582,12 @@ def _compute_closure(
                 if name == main_name:
                     main_nar_hash = nar_hash
                 else:
-                    closure.append({
-                        "store_path": path,
-                        "nar_hash": nar_hash,
-                    })
+                    closure.append(
+                        {
+                            "store_path": path,
+                            "nar_hash": nar_hash,
+                        }
+                    )
 
                 refs = narinfo.get("References", "").split()
                 for ref in refs:
@@ -591,7 +631,10 @@ def _build_manifest_from_index(source_dir: Path) -> dict[str, Any]:
         print(f"  Error computing closure: {e}", file=sys.stderr)
         raise
 
-    print(f"  Closure computed: nar_hash={nar_hash[:20] if nar_hash else 'EMPTY'}..., {len(closure)} deps", file=sys.stderr)
+    print(
+        f"  Closure computed: nar_hash={nar_hash[:20] if nar_hash else 'EMPTY'}..., {len(closure)} deps",
+        file=sys.stderr,
+    )
 
     if not nar_hash:
         raise ValueError(f"Could not fetch narinfo for {pkg.store_path}")
@@ -718,17 +761,25 @@ def build_wheel(
 
         abs_paths = find_absolute_store_paths(binary_path)
         if abs_paths:
-            print(f"  Found {len(abs_paths)} absolute store path(s), patching...", file=sys.stderr)
+            print(
+                f"  Found {len(abs_paths)} absolute store path(s), patching...",
+                file=sys.stderr,
+            )
 
             # Ensure patchelf is available
-            patchelf_in_store = any("patchelf" in item.name for item in nix_store.iterdir())
+            patchelf_in_store = any(
+                "patchelf" in item.name for item in nix_store.iterdir()
+            )
             if not patchelf_in_store:
-                print(f"  Fetching patchelf...", file=sys.stderr)
+                print("  Fetching patchelf...", file=sys.stderr)
                 from .index import NixIndex
+
                 tmp_index = NixIndex()
                 patchelf_pkg = tmp_index.find_package("patchelf")
                 if patchelf_pkg:
-                    patchelf_nar_hash, patchelf_closure = _compute_closure(cache_url, patchelf_pkg.store_path)
+                    patchelf_nar_hash, patchelf_closure = _compute_closure(
+                        cache_url, patchelf_pkg.store_path
+                    )
                     _fetch_all_packages(
                         cache_url=cache_url,
                         store_path=patchelf_pkg.store_path,
@@ -739,7 +790,7 @@ def build_wheel(
 
             # Patch the binary
             if not patch_binary(binary_path, abs_paths, nix_store, ld_linux_path):
-                print(f"  Warning: Failed to patch some absolute paths", file=sys.stderr)
+                print("  Warning: Failed to patch some absolute paths", file=sys.stderr)
 
         # Build the wheel
         wheel_name = f"{normalized_name}-{version}-py3-none-{platform_tag}.whl"
@@ -824,13 +875,27 @@ if __name__ == "__main__":
             # Write the binary
             bin_arc_path = f"{module_name}/bin/{command}"
             info = zipfile.ZipInfo(bin_arc_path)
-            info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
+            info.external_attr = (
+                stat.S_IFREG
+                | stat.S_IRWXU
+                | stat.S_IRGRP
+                | stat.S_IXGRP
+                | stat.S_IROTH
+                | stat.S_IXOTH
+            ) << 16
             whl.writestr(info, binary_path.read_bytes())
 
             # Write ld-linux
             ld_arc_path = f"{module_name}/lib/{ld_linux_name}"
             info = zipfile.ZipInfo(ld_arc_path)
-            info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
+            info.external_attr = (
+                stat.S_IFREG
+                | stat.S_IRWXU
+                | stat.S_IRGRP
+                | stat.S_IXGRP
+                | stat.S_IROTH
+                | stat.S_IXOTH
+            ) << 16
             whl.writestr(info, ld_linux_path.read_bytes())
 
             # Collect all .so files from lib/ directories including subdirectories
@@ -857,7 +922,14 @@ if __name__ == "__main__":
                     # Put all libs in flat lib/ directory (patched binary uses just lib name)
                     arc_path = f"{module_name}/lib/{name}"
                     info = zipfile.ZipInfo(arc_path)
-                    info.external_attr = (stat.S_IFREG | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH) << 16
+                    info.external_attr = (
+                        stat.S_IFREG
+                        | stat.S_IRWXU
+                        | stat.S_IRGRP
+                        | stat.S_IXGRP
+                        | stat.S_IROTH
+                        | stat.S_IXOTH
+                    ) << 16
                     whl.writestr(info, so_file.read_bytes())
 
             # Write dist-info
@@ -867,7 +939,7 @@ if __name__ == "__main__":
             metadata = f"""Metadata-Version: 2.1
 Name: {dist_name}
 Version: {version}
-Summary: {manifest.get('description', f'nixwrap package for {command}')}
+Summary: {manifest.get("description", f"nixwrap package for {command}")}
 """
             whl.writestr(f"{dist_info}/METADATA", metadata)
 
@@ -888,13 +960,18 @@ Tag: py3-none-{platform_tag}
             # RECORD (must be last, includes hashes of all files)
             # Use csv module for proper escaping
             import csv as csv_module
+
             record_buffer = io.StringIO()
             writer = csv_module.writer(record_buffer, lineterminator="\n")
             for item in whl.namelist():
                 if item.endswith("/RECORD"):
                     continue
                 data = whl.read(item)
-                digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+                digest = (
+                    base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+                    .rstrip(b"=")
+                    .decode()
+                )
                 writer.writerow([item, f"sha256={digest}", str(len(data))])
             writer.writerow([f"{dist_info}/RECORD", "", ""])
             whl.writestr(f"{dist_info}/RECORD", record_buffer.getvalue())
@@ -939,7 +1016,7 @@ build-backend = "nixwrap.backend"
 [project]
 name = "{dist_name}"
 version = "{version}"
-description = "{manifest.get('description', f'nixwrap package for {manifest["command"]}')})"
+description = "{manifest.get("description", f"nixwrap package for {manifest['command']}")})"
 requires-python = ">=3.10"
 
 [project.scripts]
@@ -954,7 +1031,7 @@ requires-python = ">=3.10"
         pkg_info = f"""Metadata-Version: 2.1
 Name: {dist_name}
 Version: {version}
-Summary: {manifest.get('description', f'nixwrap package for {manifest["command"]}')}
+Summary: {manifest.get("description", f"nixwrap package for {manifest['command']}")}
 """
         pkg_info_data = pkg_info.encode()
         info = tarfile.TarInfo(f"{base_dir}/PKG-INFO")

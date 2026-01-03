@@ -35,6 +35,7 @@ except ImportError:
                 chunks.append(chunk)
             return b"".join(chunks)
     except ImportError:
+
         def decompress_zstd_stream(f) -> bytes:
             raise ImportError("Python 3.14+ or zstandard package required")
 
@@ -50,16 +51,13 @@ _PKG_PATTERN = re.compile(
 # Format: bin\n followed by entries like 6572488x\x00\x03/rg
 # The 'x' indicates executable, the byte after \x00 is string length metadata
 _REL_BIN_PATTERN = re.compile(
-    rb'bin\n(?:.*?(\d+)x\x00./(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*)\n?)*',
-    re.DOTALL
+    rb"bin\n(?:.*?(\d+)x\x00./(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*)\n?)*", re.DOTALL
 )
 
 # Pattern for individual binary entries within a bin section
 # Format: <SIZE>x\x00<META>/? <BINARY_NAME>
 # Some entries have / prefix, some don't (e.g., .bat-wrapped)
-_BIN_ENTRY_PATTERN = re.compile(
-    rb'\d+x\x00./?(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*)'
-)
+_BIN_ENTRY_PATTERN = re.compile(rb"\d+x\x00./?(\.?[a-zA-Z0-9][a-zA-Z0-9._-]*)")
 
 
 @dataclass
@@ -146,11 +144,11 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
         # The package metadata format is: \np\x00<len>{...json...}
         # We include a bit of the metadata area but truncate at the header
         search_start = max(0, match.start() - 2000)
-        context = data[search_start:match.start()]
+        context = data[search_start : match.start()]
 
         # Remove the package header from the end of context
         # The header is \np\x00<len> where <len> is 1 byte
-        header_pos = context.rfind(b'\np\x00')
+        header_pos = context.rfind(b"\np\x00")
         if header_pos != -1:
             context = context[:header_pos]
 
@@ -161,7 +159,7 @@ def _parse_index(path: Path) -> dict[str, PackageInfo]:
         if bin_pos != -1:
             # Find if there's a previous package marker in the search window
             # If so, we should only look at content after that marker
-            last_pkg_marker = context.rfind(b'\np\x00')
+            last_pkg_marker = context.rfind(b"\np\x00")
             if last_pkg_marker != -1 and last_pkg_marker > bin_pos:
                 # The bin section we found belongs to a previous package
                 # Look for another bin section after the marker

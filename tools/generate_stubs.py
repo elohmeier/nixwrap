@@ -229,7 +229,14 @@ def main() -> int:
     index_path = args.index_path
     if not index_path:
         # Try default location in nixwrap-index package data
-        default_path = Path(__file__).parent.parent / "nixwrap-index" / "src" / "nixwrap_index" / "data" / f"index-{args.system}"
+        default_path = (
+            Path(__file__).parent.parent
+            / "nixwrap-index"
+            / "src"
+            / "nixwrap_index"
+            / "data"
+            / f"index-{args.system}"
+        )
         if default_path.exists():
             index_path = default_path
 

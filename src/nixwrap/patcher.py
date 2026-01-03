@@ -8,7 +8,6 @@ outside of the Nix store.
 from __future__ import annotations
 
 import os
-import re
 import struct
 import subprocess
 from pathlib import Path
@@ -224,9 +223,12 @@ def patch_binary(
             # Run patchelf via ld-linux
             cmd = [
                 str(ld_linux_path),
-                "--library-path", library_path,
+                "--library-path",
+                library_path,
                 str(patchelf_path),
-                "--replace-needed", abs_path, lib_name,
+                "--replace-needed",
+                abs_path,
+                lib_name,
                 str(binary_path),
             ]
 
@@ -270,8 +272,11 @@ def collect_library_paths(nix_store: Path) -> list[str]:
         for subdir in lib_dir.rglob("*"):
             if subdir.is_dir():
                 # Check if this directory contains any .so files
-                has_so = any(f.suffix == ".so" or ".so." in f.name
-                           for f in subdir.iterdir() if f.is_file())
+                has_so = any(
+                    f.suffix == ".so" or ".so." in f.name
+                    for f in subdir.iterdir()
+                    if f.is_file()
+                )
                 if has_so:
                     lib_paths.append(str(subdir))
 

@@ -143,16 +143,17 @@ def run_package(attr: str, args: list[str]) -> int:
             return 1
 
         # Save to cache for next time
-        _save_package_cache(attr, {
-            "store_path": store_path,
-            "command": command,
-            "bin_relpath": bin_relpath,
-            "ld_linux_relpath": ld_linux_relpath,
-            "nar_hash": nar_hash,
-            "closure": closure,
-        })
-
-    ld_linux_name = Path(ld_linux_relpath).name
+        _save_package_cache(
+            attr,
+            {
+                "store_path": store_path,
+                "command": command,
+                "bin_relpath": bin_relpath,
+                "ld_linux_relpath": ld_linux_relpath,
+                "nar_hash": nar_hash,
+                "closure": closure,
+            },
+        )
 
     # Check if already extracted
     store_name = Path(store_path).name
@@ -185,26 +186,31 @@ def run_package(attr: str, args: list[str]) -> int:
                 break
 
     if not ld_linux_path:
-        print(f"Error: ld-linux not found", file=sys.stderr)
+        print("Error: ld-linux not found", file=sys.stderr)
         return 1
 
     # Check for absolute /nix/store paths in NEEDED entries
     abs_paths = find_absolute_store_paths(binary_path)
     if abs_paths:
-        print(f"Found {len(abs_paths)} absolute store path(s), patching...", file=sys.stderr)
+        print(
+            f"Found {len(abs_paths)} absolute store path(s), patching...",
+            file=sys.stderr,
+        )
 
         # Ensure patchelf is available
         patchelf_in_store = any("patchelf" in item.name for item in nix_store.iterdir())
         if not patchelf_in_store:
-            print(f"Fetching patchelf...", file=sys.stderr)
+            print("Fetching patchelf...", file=sys.stderr)
             # Query index for patchelf
-            patchelf_pkg = index.find_package("patchelf") if 'index' in dir() else None
+            patchelf_pkg = index.find_package("patchelf") if "index" in dir() else None
             if not patchelf_pkg:
                 tmp_index = _get_index()
                 patchelf_pkg = tmp_index.find_package("patchelf")
 
             if patchelf_pkg:
-                patchelf_nar_hash, patchelf_closure = _compute_closure(cache_url, patchelf_pkg.store_path)
+                patchelf_nar_hash, patchelf_closure = _compute_closure(
+                    cache_url, patchelf_pkg.store_path
+                )
                 _fetch_all_packages(
                     cache_url=cache_url,
                     store_path=patchelf_pkg.store_path,
@@ -215,7 +221,7 @@ def run_package(attr: str, args: list[str]) -> int:
 
         # Patch the binary
         if not patch_binary(binary_path, abs_paths, nix_store, ld_linux_path):
-            print(f"Warning: Failed to patch some absolute paths", file=sys.stderr)
+            print("Warning: Failed to patch some absolute paths", file=sys.stderr)
 
     # Collect library paths (including subdirectories for lua modules etc.)
     lib_paths = collect_library_paths(nix_store)
@@ -252,9 +258,13 @@ def show_info(attr: str) -> int:
     print(f"Version: {pkg.version}")
     print(f"System: {pkg.system}")
     print(f"Store path: {pkg.store_path}")
-    print(f"Binaries:")
+    print("Binaries:")
     for binary in pkg.binaries:
-        marker = " (primary)" if binary == select_primary_binary(pkg.binaries, pkg.name) else ""
+        marker = (
+            " (primary)"
+            if binary == select_primary_binary(pkg.binaries, pkg.name)
+            else ""
+        )
         wrapper = " [wrapper]" if binary.is_wrapper else ""
         print(f"  - {binary.command}{wrapper}{marker}")
 
